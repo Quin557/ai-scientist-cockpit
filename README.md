@@ -17,7 +17,7 @@ EurekaLoop 是一个面向“AI agent for scientist”的前端 demo。当前版
 - Message index rail: the thin left rail indexes each input/output and can jump back to a message.
 - Controller controls: reasoning level, access permission, and memory level use Codex-style dropdown controls.
 - File attachment affordance: the composer keeps a `+` button with the tooltip “添加文件等内容”.
-- Side state tree: compact branch tree stays in the side rail; clicking a node opens the full visual React Flow state tree.
+- Side state tree: compact branch tree stays in the side rail; clicking a node opens the full React Flow state tree with six stage lanes, artifact branches, and concrete payload-derived summaries.
 - Chinese / English switch and a concise in-app guide page.
 - Browser-first direction. Desktop wrapping is deferred until the web experience and backend contract are stable.
 

@@ -24,6 +24,7 @@ From `总控层与前端设计方案v0.1.md`:
 - The thin message index rail supports jumping between question, module outputs, revisions, and final output.
 - The project sidebar keeps separate frontend sessions so each project can preserve its own conversation, current stage, drafts, files, and Review Gate state.
 - The full visual state tree now separates the six main workflow stages from each stage's writable artifacts and output-derived detail nodes.
+- State-tree branches now show concrete previews derived from each Agent `payload`, such as core questions, literature titles, hypothesis statements, evidence strength, research-plan methods, and final review scores.
 
 ## Competition Alignment
 

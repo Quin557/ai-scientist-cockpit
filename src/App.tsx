@@ -71,10 +71,17 @@ type FlowNode = Node<FlowNodeData, "flowNode">;
 
 interface FlowNodeData extends Record<string, unknown> {
   active: boolean;
-  kind: "stage" | "artifact" | "feedback";
+  kind: "stage" | "artifact" | "detail";
   lang: Language;
   stage?: StageId;
   status?: StageRun["status"];
+  subtitle: string;
+  title: string;
+}
+
+interface StateTreeDetailNode {
+  id: string;
+  sourceArtifact: string;
   subtitle: string;
   title: string;
 }
@@ -1552,52 +1559,206 @@ function StatusMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function getStageExpansionNodes(stage: StageRun, language: Language): Array<{ title: string; subtitle: string }> {
+function trimPreview(value: unknown, maxLength = 92) {
+  const text = stringValue(value).replace(/\s+/g, " ").trim();
+  if (!text) return "--";
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
+function joinPreview(values: unknown[], mapper: (value: unknown) => string, language: Language, maxItems = 2) {
+  const separator = language === "zh" ? "；" : "; ";
+  const items = values.map(mapper).map((value) => value.trim()).filter(Boolean).slice(0, maxItems);
+  return items.length ? trimPreview(items.join(separator), 118) : "--";
+}
+
+function percentPreview(value: unknown) {
+  const score = numberValue(value);
+  return score > 0 ? `${Math.round(score * 100)}%` : "--";
+}
+
+function getStageArtifactSummary(stage: StageRun, field: string, language: Language) {
+  const payload = (stage.output?.payload ?? {}) as Record<string, unknown>;
+  if (!stage.output) return language === "zh" ? "等待该模块输出后写入 task_context" : "Waiting for this module output";
+
+  if (field === "question_card") {
+    const card = payload.question_card as Record<string, unknown> | undefined;
+    return trimPreview(`${language === "zh" ? "核心问题" : "Core"}：${stringValue(card?.core_question)}`, 118);
+  }
+  if (field === "literature_cards") {
+    return joinPreview(
+      arrayValue(payload.literature_cards),
+      (item) => `${objectField(item, "title")} (${objectField(item, "year")})`,
+      language,
+    );
+  }
+  if (field === "evidence_cards") {
+    return joinPreview(arrayValue(payload.evidence_cards), (item) => objectField(item, "claim"), language);
+  }
+  if (field === "knowledge_gaps") {
+    return joinPreview(arrayValue(payload.knowledge_gaps), (item) => objectField(item, "description"), language);
+  }
+  if (field === "hypothesis_cards") {
+    return joinPreview(
+      arrayValue(payload.hypothesis_cards),
+      (item) => `${objectField(item, "hypothesis_id")}：${objectField(item, "statement")}`,
+      language,
+    );
+  }
+  if (field === "evidence_map") {
+    return joinPreview(
+      arrayValue(payload.evidence_map),
+      (item) => `${objectField(item, "hypothesis_id")} ${language === "zh" ? "强度" : "strength"} ${percentPreview(objectValue(item, "evidence_strength_score"))}`,
+      language,
+      3,
+    );
+  }
+  if (field === "reviews") {
+    const review = objectValue(arrayValue(payload.evidence_map)[0], "detailed_review.verdict");
+    return trimPreview(`${language === "zh" ? "建议" : "Recommendation"}：${objectField(review, "recommendation")}`, 118);
+  }
+  if (field === "research_plan") {
+    const plan = ((payload.research_plan as Record<string, unknown> | undefined)?.plans as Array<Record<string, unknown>> | undefined)?.[0]?.plan as Record<string, unknown> | undefined;
+    return trimPreview(`${language === "zh" ? "方案" : "Plan"}：${stringValue(plan?.problem_statement)}`, 118);
+  }
+  if (field === "final_review") {
+    const review = payload.final_review as Record<string, unknown> | undefined;
+    return trimPreview(`${language === "zh" ? "总评分" : "Score"} ${percentPreview(review?.overall_score)} · ${arrayValue(review?.strengths).slice(0, 1).join("")}`, 118);
+  }
+  if (field === "versions") {
+    const review = payload.final_review as Record<string, unknown> | undefined;
+    return review?.revision_required ? (language === "zh" ? "需要生成修订版本" : "Revision version required") : language === "zh" ? "可生成最终上下文快照" : "Ready for final context snapshot";
+  }
+  return language === "zh" ? "已生成，等待总控合并" : "Generated and ready for merge";
+}
+
+function getStageExpansionNodes(stage: StageRun, language: Language): StateTreeDetailNode[] {
   const payload = (stage.output?.payload ?? {}) as Record<string, unknown>;
   if (stage.id === "question_understanding") {
     const card = payload.question_card as Record<string, unknown> | undefined;
     return [
-      { title: language === "zh" ? "核心问题" : "Core question", subtitle: stringValue(card?.core_question) },
-      { title: language === "zh" ? "关键变量" : "Key variables", subtitle: arrayValue(card?.key_variables).map((item) => objectName(item)).join(", ") },
-      { title: language === "zh" ? "检索关键词" : "Search keywords", subtitle: arrayValue(objectValue(card?.search_keywords, "en")).slice(0, 4).join(", ") },
+      {
+        id: "core_question",
+        sourceArtifact: "question_card",
+        title: language === "zh" ? "核心问题" : "Core question",
+        subtitle: trimPreview(card?.core_question, 120),
+      },
+      {
+        id: "variables",
+        sourceArtifact: "question_card",
+        title: language === "zh" ? "变量链路" : "Variable chain",
+        subtitle: joinPreview(arrayValue(card?.key_variables), (item) => objectName(item), language, 3),
+      },
+      {
+        id: "sub_questions",
+        sourceArtifact: "question_card",
+        title: language === "zh" ? "拆解子问题" : "Sub-questions",
+        subtitle: joinPreview(arrayValue(card?.sub_questions), (item) => objectField(item, "content"), language, 2),
+      },
     ];
   }
   if (stage.id === "knowledge_integration") {
     return [
-      { title: "literature_cards", subtitle: `${arrayValue(payload.literature_cards).length} ${language === "zh" ? "条文献卡片" : "cards"}` },
-      { title: "evidence_cards", subtitle: `${arrayValue(payload.evidence_cards).length} ${language === "zh" ? "条证据" : "evidence items"}` },
-      { title: "knowledge_gaps", subtitle: arrayValue(payload.knowledge_gaps).map((item) => objectField(item, "description")).join(" / ") },
+      {
+        id: "literature_preview",
+        sourceArtifact: "literature_cards",
+        title: language === "zh" ? "代表文献" : "Key literature",
+        subtitle: joinPreview(arrayValue(payload.literature_cards), (item) => `${objectField(item, "title")} · ${objectField(item, "source")}`, language),
+      },
+      {
+        id: "evidence_claims",
+        sourceArtifact: "evidence_cards",
+        title: language === "zh" ? "证据结论" : "Evidence claims",
+        subtitle: joinPreview(arrayValue(payload.evidence_cards), (item) => objectField(item, "claim"), language),
+      },
+      {
+        id: "knowledge_gaps",
+        sourceArtifact: "knowledge_gaps",
+        title: language === "zh" ? "知识空白" : "Knowledge gaps",
+        subtitle: joinPreview(arrayValue(payload.knowledge_gaps), (item) => objectField(item, "description"), language),
+      },
     ];
   }
   if (stage.id === "hypothesis_generation") {
     return arrayValue(payload.hypothesis_cards)
       .slice(0, 3)
       .map((item) => ({
-        title: objectField(item, "hypothesis_id"),
-        subtitle: objectField(item, "statement"),
+        id: objectField(item, "hypothesis_id") || "hypothesis",
+        sourceArtifact: "hypothesis_cards",
+        title: `${objectField(item, "hypothesis_id")} · ${language === "zh" ? "可检验性" : "testability"} ${percentPreview(objectValue(item, "initial_scores.testability"))}`,
+        subtitle: trimPreview(`${objectField(item, "statement")} ${language === "zh" ? "验证：" : "Test: "}${objectField(item, "validation_idea")}`, 126),
       }));
   }
   if (stage.id === "evidence_mapping") {
-    const first = arrayValue(payload.evidence_map)[0];
+    const maps = arrayValue(payload.evidence_map);
+    const mappedNodes = maps.slice(0, 2).map((item) => ({
+      id: objectField(item, "hypothesis_id") || "evidence",
+      sourceArtifact: "evidence_map",
+      title: `${objectField(item, "hypothesis_id")} · ${language === "zh" ? "证据强度" : "strength"} ${percentPreview(objectValue(item, "evidence_strength_score"))}`,
+      subtitle: trimPreview(
+        `${language === "zh" ? "支持" : "Support"}：${objectField(item, "evidence_summary.support")} ${language === "zh" ? "反对" : "Oppose"}：${objectField(item, "evidence_summary.oppose")}`,
+        128,
+      ),
+    }));
+    const firstVerdict = objectValue(maps[0], "detailed_review.verdict");
     return [
-      { title: language === "zh" ? "支持证据" : "Supporting", subtitle: arrayValue(objectValue(first, "supporting_evidence_ids")).join(", ") || "--" },
-      { title: language === "zh" ? "反对证据" : "Opposing", subtitle: arrayValue(objectValue(first, "opposing_evidence_ids")).join(", ") || "--" },
-      { title: language === "zh" ? "证据强度" : "Evidence strength", subtitle: `${Math.round(numberValue(objectValue(first, "evidence_strength_score")) * 100)}%` },
+      ...mappedNodes,
+      {
+        id: "review_recommendation",
+        sourceArtifact: "reviews",
+        title: language === "zh" ? "评审建议" : "Review advice",
+        subtitle: trimPreview(`${objectField(firstVerdict, "reason")} ${objectField(firstVerdict, "recommendation")}`, 128),
+      },
     ];
   }
   if (stage.id === "research_planning") {
     const plan = ((payload.research_plan as Record<string, unknown> | undefined)?.plans as Array<Record<string, unknown>> | undefined)?.[0]?.plan as Record<string, unknown> | undefined;
     return [
-      { title: language === "zh" ? "方法路线" : "Methods", subtitle: arrayValue(objectValue(plan?.technical_details, "required_methods")).join(", ") },
-      { title: language === "zh" ? "失败判据" : "Falsification", subtitle: arrayValue(objectValue(plan?.results, "falsification_criteria")).slice(0, 2).join(" / ") },
-      { title: language === "zh" ? "反馈任务" : "Feedback tasks", subtitle: arrayValue(plan?.feedback_tasks).map((item) => objectField(item, "objective")).slice(0, 2).join(" / ") },
+      {
+        id: "problem_methods",
+        sourceArtifact: "research_plan",
+        title: language === "zh" ? "问题与方法" : "Problem and methods",
+        subtitle: trimPreview(`${stringValue(plan?.problem_statement)} · ${arrayValue(objectValue(plan?.technical_details, "required_methods")).slice(0, 3).join(", ")}`, 128),
+      },
+      {
+        id: "data_metrics",
+        sourceArtifact: "research_plan",
+        title: language === "zh" ? "数据与指标" : "Data and metrics",
+        subtitle: trimPreview(
+          `${joinPreview(arrayValue(objectValue(plan?.datasets, "source")), (item) => objectField(item, "name"), language)} · ${joinPreview(arrayValue(objectValue(plan?.experiments, "metrics")), (item) => objectField(item, "name"), language, 3)}`,
+          128,
+        ),
+      },
+      {
+        id: "falsification_feedback",
+        sourceArtifact: "research_plan",
+        title: language === "zh" ? "失败判据与反馈" : "Falsification and feedback",
+        subtitle: trimPreview(
+          `${joinPreview(arrayValue(objectValue(plan?.results, "falsification_criteria")), (item) => stringValue(item), language)} · ${joinPreview(arrayValue(plan?.feedback_tasks), (item) => objectField(item, "objective"), language)}`,
+          128,
+        ),
+      },
     ];
   }
   const finalReview = payload.final_review as Record<string, unknown> | undefined;
   return [
-    { title: language === "zh" ? "总体评分" : "Score", subtitle: `${Math.round(numberValue(finalReview?.overall_score) * 100)}%` },
-    { title: language === "zh" ? "优势" : "Strengths", subtitle: arrayValue(finalReview?.strengths).slice(0, 2).join(" / ") },
-    { title: language === "zh" ? "修订要求" : "Revision", subtitle: finalReview?.revision_required ? "required" : language === "zh" ? "无需修订" : "not required" },
+    {
+      id: "overall_score",
+      sourceArtifact: "final_review",
+      title: language === "zh" ? "总体评分" : "Overall score",
+      subtitle: `${percentPreview(finalReview?.overall_score)} · ${joinPreview(arrayValue(finalReview?.strengths), (item) => stringValue(item), language)}`,
+    },
+    {
+      id: "weaknesses",
+      sourceArtifact: "final_review",
+      title: language === "zh" ? "剩余风险" : "Remaining risks",
+      subtitle: joinPreview(arrayValue(finalReview?.weaknesses), (item) => stringValue(item), language),
+    },
+    {
+      id: "delivery_snapshot",
+      sourceArtifact: "versions",
+      title: language === "zh" ? "交付状态" : "Delivery state",
+      subtitle: finalReview?.revision_required ? (language === "zh" ? "需要修订后再形成最终版本。" : "Revision required before final delivery.") : language === "zh" ? "可形成最终 task_context 快照与报告导出。" : "Ready for final task_context snapshot and report export.",
+    },
   ];
 }
 
@@ -1619,12 +1780,33 @@ function StateTreeModal({
   const nodes = useMemo<FlowNode[]>(
     () => {
       const nextNodes: FlowNode[] = [];
-      stages.forEach((stage, index) => {
-        const baseY = index * 132 + 34;
+      const layout = {
+        artifactHeight: 72,
+        artifactX: 378,
+        detailHeight: 82,
+        detailX: 730,
+        laneGap: 18,
+        minLaneHeight: 264,
+        rowGap: 104,
+        stageHeight: 96,
+        stageX: 64,
+      };
+      let cursorY = 30;
+      const getRowY = (laneTop: number, laneHeight: number, rowIndex: number, totalRows: number, nodeHeight: number) => {
+        const blockHeight = (totalRows - 1) * layout.rowGap;
+        return laneTop + laneHeight / 2 - blockHeight / 2 + rowIndex * layout.rowGap - nodeHeight / 2;
+      };
+
+      stages.forEach((stage) => {
+        const artifacts = stageMeta[stage.id].allowedWrites;
+        const details = stage.output ? getStageExpansionNodes(stage, language) : [];
+        const rowCount = Math.max(1, artifacts.length, details.length);
+        const laneHeight = Math.max(layout.minLaneHeight, rowCount * layout.rowGap + 20);
+        const stageY = cursorY + laneHeight / 2 - layout.stageHeight / 2;
         nextNodes.push({
           id: stage.id,
           type: "flowNode",
-          position: { x: 70, y: baseY },
+          position: { x: layout.stageX, y: stageY },
           data: {
             active: stage.id === activeStage,
             kind: "stage",
@@ -1636,43 +1818,41 @@ function StateTreeModal({
           },
         });
 
-        const artifacts = stageMeta[stage.id].allowedWrites;
         artifacts.forEach((field, fieldIndex) => {
-          const offset = (fieldIndex - (artifacts.length - 1) / 2) * 48;
           nextNodes.push({
             id: `${stage.id}:${field}`,
             type: "flowNode",
-            position: { x: 352, y: baseY + offset },
+            position: { x: layout.artifactX, y: getRowY(cursorY, laneHeight, fieldIndex, artifacts.length, layout.artifactHeight) },
             data: {
               active: false,
               kind: "artifact",
               lang: language,
               stage: stage.id,
               status: stage.status,
-              subtitle: stage.output ? (language === "zh" ? "已生成并等待总控合并" : "Generated and ready for merge") : language === "zh" ? "等待该模块输出" : "Waiting for module output",
+              subtitle: getStageArtifactSummary(stage, field, language),
               title: field,
             },
           });
         });
 
-        if (stage.output) {
-          getStageExpansionNodes(stage, language).forEach((node, nodeIndex) => {
-            nextNodes.push({
-              id: `${stage.id}:detail:${nodeIndex}`,
-              type: "flowNode",
-              position: { x: 626, y: baseY + (nodeIndex - 1) * 56 },
-              data: {
-                active: false,
-                kind: "feedback",
-                lang: language,
-                stage: stage.id,
-                status: stage.status,
-                subtitle: node.subtitle,
-                title: node.title,
-              },
-            });
+        details.forEach((node, nodeIndex) => {
+          nextNodes.push({
+            id: `${stage.id}:detail:${node.id}`,
+            type: "flowNode",
+            position: { x: layout.detailX, y: getRowY(cursorY, laneHeight, nodeIndex, details.length, layout.detailHeight) },
+            data: {
+              active: false,
+              kind: "detail",
+              lang: language,
+              stage: stage.id,
+              status: stage.status,
+              subtitle: node.subtitle,
+              title: node.title,
+            },
           });
-        }
+        });
+
+        cursorY += laneHeight + layout.laneGap;
       });
       return nextNodes;
     },
@@ -1684,7 +1864,9 @@ function StateTreeModal({
       const sequenceEdges: Edge[] = stageOrder.slice(0, -1).map((stage, index) => ({
         id: `${stage}-${stageOrder[index + 1]}`,
         source: stage,
+        sourceHandle: "bottom",
         target: stageOrder[index + 1],
+        targetHandle: "top",
         animated: stages[index].status === "running" || stages[index].status === "validating",
         className: stages[index].status === "passed" ? "flow-edge-passed vertical-flow-edge" : "flow-edge vertical-flow-edge",
         type: "smoothstep",
@@ -1693,16 +1875,20 @@ function StateTreeModal({
         const artifactEdges = stageMeta[stage.id].allowedWrites.map((field) => ({
           id: `${stage.id}->${field}`,
           source: stage.id,
+          sourceHandle: "right",
           target: `${stage.id}:${field}`,
+          targetHandle: "left",
           animated: stage.status === "running" || stage.status === "validating",
           className: stage.status === "passed" ? "flow-edge-passed branch-flow-edge" : "flow-edge branch-flow-edge",
           type: "smoothstep",
         }));
         const expansionEdges = stage.output
-          ? getStageExpansionNodes(stage, language).map((_, index) => ({
-              id: `${stage.id}:expansion:${index}`,
-              source: `${stage.id}:${stageMeta[stage.id].allowedWrites[0]}`,
-              target: `${stage.id}:detail:${index}`,
+          ? getStageExpansionNodes(stage, language).map((node) => ({
+              id: `${stage.id}:expansion:${node.id}`,
+              source: `${stage.id}:${node.sourceArtifact}`,
+              sourceHandle: "right",
+              target: `${stage.id}:detail:${node.id}`,
+              targetHandle: "left",
               className: "flow-edge branch-flow-edge faint-flow-edge",
               type: "smoothstep",
             }))
@@ -1731,8 +1917,9 @@ function StateTreeModal({
           <ReactFlow
             edges={edges}
             fitView
+            fitViewOptions={{ padding: 0.12 }}
             maxZoom={1.2}
-            minZoom={0.5}
+            minZoom={0.25}
             nodes={nodes}
             nodeTypes={flowNodeTypes}
             nodesDraggable={false}
@@ -1754,11 +1941,13 @@ function FlowNodeCard({ data }: NodeProps<FlowNode>) {
   const { active, kind, lang, status, subtitle, title } = data;
   return (
     <button className={`flow-node ${kind} ${status ?? "queued"} ${active ? "active" : ""}`} type="button">
-      <Handle className="node-handle" position={Position.Left} type="target" />
+      {kind === "stage" ? <Handle className="node-handle node-handle-top" id="top" position={Position.Top} type="target" /> : null}
+      {kind !== "stage" ? <Handle className="node-handle node-handle-left" id="left" position={Position.Left} type="target" /> : null}
       <span>{status ? statusLabel[lang][status] : kind}</span>
       <strong>{title}</strong>
       <small>{subtitle}</small>
-      <Handle className="node-handle" position={Position.Right} type="source" />
+      {kind !== "detail" ? <Handle className="node-handle node-handle-right" id="right" position={Position.Right} type="source" /> : null}
+      {kind === "stage" ? <Handle className="node-handle node-handle-bottom" id="bottom" position={Position.Bottom} type="source" /> : null}
     </button>
   );
 }

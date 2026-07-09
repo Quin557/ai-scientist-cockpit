@@ -237,7 +237,13 @@ DELETE /api/projects/{project_id}/files/{file_id}
 
 ## 7. 状态树数据
 
-完整状态树不应该只返回 6 个阶段节点。建议后端返回主阶段 + artifact + 根据真实输出展开的子节点：
+完整状态树不应该只返回 6 个阶段节点。当前前端会本地生成三列结构：
+
+- 第 1 列：六个主阶段，从上到下固定为 `question_understanding -> knowledge_integration -> hypothesis_generation -> evidence_mapping -> research_planning -> final_review`。
+- 第 2 列：每个阶段允许写入的 artifact，例如 `question_card`、`literature_cards`、`evidence_map`。
+- 第 3 列：从 Agent 真实 `payload` 中抽取的可读摘要，例如核心问题、文献标题、假设语句、证据强度、方案方法、总控评分。
+
+后续建议后端直接提供 `/api/tasks/{task_id}/state-tree`，让前端只负责渲染。节点字段建议如下：
 
 ```json
 {
@@ -247,19 +253,34 @@ DELETE /api/projects/{project_id}/files/{file_id}
       "kind": "stage",
       "stage": "question_understanding",
       "title": "问题理解",
-      "status": "passed"
+      "status": "passed",
+      "lane": 1,
+      "column": "stage",
+      "summary": "把原始问题转成可检索、可验证、可迭代的 question_card。"
     },
     {
       "id": "question_understanding:question_card",
       "kind": "artifact",
+      "stage": "question_understanding",
       "title": "question_card",
-      "status": "ready"
+      "status": "ready",
+      "lane": 1,
+      "column": "artifact",
+      "summary": "核心问题：神经炎症是否通过促进 Tau 病理扩散，加速阿尔茨海默病认知功能下降？",
+      "source_payload_path": "payload.question_card"
     },
     {
       "id": "question_understanding:detail:core_question",
       "kind": "detail",
+      "stage": "question_understanding",
+      "parent_id": "question_understanding:question_card",
       "title": "核心问题",
-      "summary": "神经炎症是否通过促进 Tau 病理扩散..."
+      "status": "ready",
+      "lane": 1,
+      "column": "detail",
+      "summary": "神经炎症是否通过促进 Tau 病理扩散，加速阿尔茨海默病认知功能下降？",
+      "source_payload_path": "payload.question_card.core_question",
+      "preview_fields": ["core_question", "key_variables", "sub_questions"]
     }
   ],
   "edges": [
@@ -272,12 +293,28 @@ DELETE /api/projects/{project_id}/files/{file_id}
       "source": "question_understanding",
       "target": "question_understanding:question_card",
       "kind": "writes"
+    },
+    {
+      "source": "question_understanding:question_card",
+      "target": "question_understanding:detail:core_question",
+      "kind": "explains"
     }
   ]
 }
 ```
 
-前端当前会本地生成这棵树；后续接入后可改为从 `/api/tasks/{task_id}/state-tree` 拉取。
+摘要节点必须来自真实 Agent 返回内容，而不是固定模板。推荐映射：
+
+|阶段|artifact|detail 摘要建议|
+|---|---|---|
+|问题理解|`question_card`|`core_question`、`key_variables`、`sub_questions`|
+|知识整合|`literature_cards` / `evidence_cards` / `knowledge_gaps`|代表文献标题、证据 claim、知识空白 description|
+|假设生成|`hypothesis_cards`|`hypothesis_id`、`statement`、`validation_idea`、`initial_scores.testability`|
+|证据梳理|`evidence_map` / `reviews`|支持/反对证据摘要、`evidence_strength_score`、评审建议|
+|研究计划|`research_plan`|`problem_statement`、方法、数据集、指标、失败判据、反馈任务|
+|总控最终输出|`final_review` / `versions`|总体评分、优势、剩余风险、是否需要修订、最终快照状态|
+
+为了避免前端分支重叠，后端如能计算布局，可返回 `lane`、`column`、`parent_id`；如果不返回，前端会按阶段自动分配泳道，并将主流程纵向、artifact/detail 横向展开。
 
 ## 8. 事件流
 
