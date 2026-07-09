@@ -1,0 +1,10 @@
+{
+  "name": "AI Scientist Cockpit",
+  "short_name": "Scientist Cockpit",
+  "description": "Multi-agent scientific workflow cockpit for AI Scientist demos.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef1f5",
+  "theme_color": "#eef1f5",
+  "icons": []
+}
