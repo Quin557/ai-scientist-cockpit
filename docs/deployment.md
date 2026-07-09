@@ -33,11 +33,12 @@ Then replace the mock runner with a real API client:
 
 ## Desktop App Path
 
-Recommended path:
+Current recommendation:
 
-1. Keep this React/Vite project as the shared UI.
-2. Add Tauri when the team wants a desktop app shell.
-3. Use the existing `surface=app` UI mode as the desktop visual foundation.
-4. Let the Tauri backend call the same HTTP backend or local orchestrator.
+1. Finish and test the browser experience first.
+2. Connect the real backend API and event stream.
+3. Only then decide whether the team still needs a desktop app.
+4. If yes, wrap the same React/Vite frontend with Tauri for a lightweight shell.
+5. Let the Tauri backend call the same HTTP backend or local orchestrator.
 
 Electron is also possible, but Tauri is lighter for a demo app.

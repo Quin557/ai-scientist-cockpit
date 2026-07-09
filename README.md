@@ -12,15 +12,17 @@ AI Scientist Research Cockpit 是一个面向多智能体科研系统的前端�
 
 ## Demo Features
 
-- Codex-like workbench layout: left task rail, top action bar, workflow canvas, stage inspector, event console.
-- Apple-inspired visual style: restrained panels, soft translucency, compact controls, responsive layout.
-- Web and app surface modes: browser-first UI plus desktop-style title bar for future PWA/Tauri/Electron packaging.
+- Focused Codex-like workflow: side rail, central command composer, controller settings, compact state tree, and stage summary.
+- Apple-inspired visual style: restrained panels, soft translucency, compact controls, smooth hover states, responsive layout.
+- Browser-first product direction. The app shell is intentionally deferred until the web UX is stable.
+- Chinese / English UI toggle.
+- Concise in-app guide page.
+- File attachment affordance in the composer, matching the Codex-style `+` entry point.
+- Controller settings for reasoning level, access mode, and memory level.
 - Mock orchestrator flow: `question_understanding -> knowledge_integration -> hypothesis_generation -> evidence_mapping -> research_planning -> final_review`.
 - Human-in-the-loop gates for `hybrid` mode.
-- `task_context` preview, Agent response preview, Review Gate score, event stream, artifact placeholders.
-- Research panels for `question_card`, `evidence_cards`, `hypothesis_cards`, `evidence_map`, `research_plan`, `feedback_events`.
-- API contract page reserved for future FastAPI backend integration.
-- Submission View reserved for competition evidence collection.
+- Compact side state tree with hover emphasis and a full visual state tree modal.
+- Stage output preview plus optional JSON details.
 
 ## Tech Stack
 
@@ -74,20 +76,19 @@ POST /api/tasks/{task_id}/export
 
 The current mock layer can later be replaced by a real API client while keeping the UI structure.
 
-## App Packaging Path
+## Product Path
 
 Short term:
 
 - Deploy as a responsive web app through Vercel, Netlify, or GitHub Pages.
-- Enable browser install experience through PWA manifest and service worker.
+- Keep the workflow, language switch, controller settings, file attachments, and state tree polished in the browser.
 
 Mid term:
 
-- Wrap the same frontend with Tauri for a lightweight desktop app.
-- Or use Electron if the team needs Node.js runtime APIs inside the desktop shell.
+- Connect to the real backend orchestrator, Artifact Service, and SSE event stream.
+- Replace mock Agent outputs with real Agent adapters.
 
 Long term:
 
-- Connect to the backend orchestrator, Artifact Service, and SSE event stream.
-- Replace mock Agent outputs with real Agent adapters.
+- Only after the web UX is stable, wrap the same frontend with Tauri or Electron if a desktop app is still useful.
 - Add JSON diff, report export, and submission bundle download.

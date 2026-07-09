@@ -10,39 +10,27 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  Activity,
-  AppWindow,
-  Archive,
   Bot,
-  Braces,
+  Brain,
   CheckCircle2,
-  CircleAlert,
+  ChevronRight,
   Clock3,
-  Database,
-  Download,
-  FileJson,
-  GitBranch,
-  GitCommitVertical,
-  LayoutDashboard,
-  ListChecks,
+  FileText,
+  Globe2,
+  HelpCircle,
   Loader2,
+  LockKeyhole,
   MessageSquareText,
-  PanelRight,
-  Pause,
+  Paperclip,
   Play,
-  RefreshCw,
+  Plus,
   RotateCcw,
-  Search,
-  Settings2,
-  ShieldCheck,
   Sparkles,
-  TerminalSquare,
+  Upload,
   X,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import {
-  apiSpecs,
-  artifactItems,
   createAgentResponse,
   createInitialContext,
   createInitialStages,
@@ -56,109 +44,245 @@ import {
   stageMeta,
   stageOrder,
 } from "./mockData";
-import type {
-  ApiSpec,
-  ArtifactItem,
-  EventLog,
-  ReviewRecord,
-  RunMode,
-  StageId,
-  StageRun,
-  SurfaceMode,
-  TaskContext,
-  VersionRecord,
-  ViewId,
-} from "./types";
+import type { AgentResponse, EventLog, ReviewRecord, RunMode, StageId, StageRun, TaskContext, VersionRecord } from "./types";
+
+type Language = "zh" | "en";
+type PageId = "workbench" | "docs";
+type ReasoningLevel = "low" | "medium" | "high" | "ultra";
+type ApprovalMode = "ask" | "assist" | "auto";
+type MemoryLevel = "low" | "medium" | "high";
+
+type FlowNode = Node<{ stage: StageRun; active: boolean; lang: Language }, "flowNode">;
 
 const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
-const statusText: Record<string, string> = {
-  queued: "Queued",
-  running: "Running",
-  validating: "Validating",
-  human_review: "Human Review",
-  passed: "Passed",
-  failed: "Failed",
-  retrying: "Retrying",
-  created: "Created",
-  completed: "Completed",
+const approvalToRunMode: Record<ApprovalMode, RunMode> = {
+  ask: "manual",
+  assist: "hybrid",
+  auto: "auto",
 };
 
-const viewItems: Array<{ id: ViewId; label: string; icon: typeof LayoutDashboard }> = [
-  { id: "workbench", label: "工作台", icon: LayoutDashboard },
-  { id: "research", label: "科研输出", icon: Sparkles },
-  { id: "artifacts", label: "Artifacts", icon: Archive },
-  { id: "api", label: "API 契约", icon: Braces },
-  { id: "submission", label: "提交视图", icon: Download },
-];
+const stageLabel: Record<Language, Record<StageId, string>> = {
+  zh: {
+    question_understanding: "问题理解",
+    knowledge_integration: "知识整合",
+    hypothesis_generation: "假设生成",
+    evidence_mapping: "证据梳理",
+    research_planning: "研究计划",
+    final_review: "总控审核",
+  },
+  en: {
+    question_understanding: "Question",
+    knowledge_integration: "Knowledge",
+    hypothesis_generation: "Hypothesis",
+    evidence_mapping: "Evidence",
+    research_planning: "Plan",
+    final_review: "Review",
+  },
+};
 
-type AgentFlowNode = Node<{ stage: StageRun; active: boolean }, "agentNode">;
+const statusLabel: Record<Language, Record<string, string>> = {
+  zh: {
+    queued: "等待",
+    running: "运行中",
+    validating: "校验中",
+    human_review: "待审核",
+    passed: "已通过",
+    failed: "失败",
+    retrying: "重试中",
+    created: "待开始",
+    completed: "已完成",
+  },
+  en: {
+    queued: "Queued",
+    running: "Running",
+    validating: "Validating",
+    human_review: "Review",
+    passed: "Passed",
+    failed: "Failed",
+    retrying: "Retrying",
+    created: "Ready",
+    completed: "Done",
+  },
+};
+
+const copy = {
+  zh: {
+    appName: "AI 科研总控台",
+    appSub: "多智能体科研闭环",
+    workbench: "工作台",
+    docs: "使用文档",
+    newTask: "新任务",
+    language: "中文",
+    heroTitle: "从一个科学问题开始，让总控把任务分发给多个 Agent。",
+    heroHint: "输入问题，选择总控策略，然后启动。状态树和详细 JSON 都在旁边，不打断主流程。",
+    questionPlaceholder: "请输入科学问题，例如：阿尔茨海默病的关键致病机制是什么？",
+    addFile: "添加文件等内容",
+    start: "开始总控",
+    running: "运行中",
+    approve: "批准继续",
+    reset: "重新开始",
+    settings: "总控设置",
+    reasoning: "推理强度",
+    approval: "访问权限",
+    memory: "记忆能力",
+    low: "低",
+    medium: "中",
+    high: "高",
+    ultra: "超高",
+    ask: "请求批准",
+    assist: "替我审批",
+    auto: "完全自动",
+    currentStage: "当前阶段",
+    progress: "进度",
+    iteration: "轮次",
+    uploaded: "已添加文件",
+    noFiles: "还没有添加文件",
+    stateTree: "状态树",
+    clickTree: "点击任一节点查看完整状态树",
+    fullTree: "完整可视化状态树",
+    close: "退出",
+    details: "阶段摘要",
+    outputPreview: "输出预览",
+    eventLog: "事件",
+    resultReady: "结果区",
+    docsTitle: "如何使用这个 Demo",
+    docsLead: "这是一个前端优先的科研多 Agent 工作台。当前使用 mock 数据，后续可替换为真实后端和 Agent 接口。",
+    step1: "1. 在主输入框写科学问题，可用左下角 + 添加文件。",
+    step2: "2. 选择推理强度、访问权限和记忆能力。",
+    step3: "3. 点击开始总控，观察侧边状态树。",
+    step4: "4. 需要审核时点击批准继续；完成后查看输出预览。",
+    docBackend: "后续接入后端时，把 mock 调度替换成 POST /api/tasks、/start、/reviews 和 SSE 事件流即可。",
+    reviewTitle: "人工审核",
+    reviewBody: "总控已完成本阶段校验。确认方向、字段和下游可用性后继续。",
+    retry: "重试本阶段",
+    continue: "批准并继续",
+  },
+  en: {
+    appName: "AI Scientist Control",
+    appSub: "Multi-agent research loop",
+    workbench: "Workbench",
+    docs: "Guide",
+    newTask: "New task",
+    language: "English",
+    heroTitle: "Start with a scientific question. The controller routes work to specialist agents.",
+    heroHint: "Write the question, choose controller settings, then run. State details stay aside until needed.",
+    questionPlaceholder: "Enter a scientific question, e.g. What drives Alzheimer's disease progression?",
+    addFile: "Add files or context",
+    start: "Start controller",
+    running: "Running",
+    approve: "Approve",
+    reset: "Reset",
+    settings: "Controller settings",
+    reasoning: "Reasoning",
+    approval: "Access",
+    memory: "Memory",
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    ultra: "Ultra",
+    ask: "Ask approval",
+    assist: "Approve for me",
+    auto: "Full auto",
+    currentStage: "Current stage",
+    progress: "Progress",
+    iteration: "Round",
+    uploaded: "Attached files",
+    noFiles: "No files attached",
+    stateTree: "State tree",
+    clickTree: "Click a node to open the full state map",
+    fullTree: "Full visual state tree",
+    close: "Close",
+    details: "Stage summary",
+    outputPreview: "Output preview",
+    eventLog: "Events",
+    resultReady: "Results",
+    docsTitle: "How to use this demo",
+    docsLead: "This is a frontend-first multi-agent research cockpit. It uses mock data now and can later connect to real agents.",
+    step1: "1. Write a scientific question in the main input. Use + to attach files.",
+    step2: "2. Choose reasoning level, access mode, and memory level.",
+    step3: "3. Start the controller and watch the side state tree.",
+    step4: "4. Approve when a review gate pauses the run. Then inspect the output preview.",
+    docBackend: "For backend integration, replace the mock runner with POST /api/tasks, /start, /reviews and SSE events.",
+    reviewTitle: "Human review",
+    reviewBody: "The controller has validated this stage. Confirm direction, fields, and downstream readiness to continue.",
+    retry: "Retry stage",
+    continue: "Approve and continue",
+  },
+};
 
 function App() {
-  const [surface, setSurface] = useState<SurfaceMode>("web");
-  const [runMode, setRunMode] = useState<RunMode>("hybrid");
-  const [activeView, setActiveView] = useState<ViewId>("workbench");
+  const [language, setLanguage] = useState<Language>("zh");
+  const [page, setPage] = useState<PageId>("workbench");
+  const [reasoning, setReasoning] = useState<ReasoningLevel>("high");
+  const [approval, setApproval] = useState<ApprovalMode>("assist");
+  const [memory, setMemory] = useState<MemoryLevel>("medium");
   const [context, setContext] = useState<TaskContext>(() => createInitialContext("hybrid"));
   const [stages, setStages] = useState<StageRun[]>(() => createInitialStages(createInitialContext("hybrid")));
   const [events, setEvents] = useState<EventLog[]>(seedEvents);
   const [versions, setVersions] = useState<VersionRecord[]>([]);
   const [activeStage, setActiveStage] = useState<StageId>("question_understanding");
-  const [inspectorTab, setInspectorTab] = useState<"input" | "output" | "review">("input");
   const [running, setRunning] = useState(false);
   const [reviewStage, setReviewStage] = useState<StageId | null>(null);
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
+  const [treeOpen, setTreeOpen] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
   const [questionDraft, setQuestionDraft] = useState(context.user_input.original_question);
+  const [files, setFiles] = useState<string[]>([]);
 
+  const t = copy[language];
+  const runMode = approvalToRunMode[approval];
   const activeStageRun = stages.find((stage) => stage.id === activeStage) ?? stages[0];
   const completedCount = stages.filter((stage) => stage.status === "passed").length;
   const finished = context.current_stage === "completed";
+  const progress = Math.round((completedCount / stages.length) * 100);
 
-  const appendEvent = useCallback((type: string, message: string, stage?: StageId | "final_review" | "feedback_revision") => {
-    setEvents((current) => [
-      {
-        event_id: `evt_${String(current.length + 1).padStart(3, "0")}`,
-        task_id: "task_001",
-        type,
-        stage,
-        message,
-        created_at: new Date().toISOString(),
-      },
-      ...current,
-    ]);
-  }, []);
+  const appendEvent = useCallback(
+    (type: string, messageZh: string, messageEn: string, stage?: StageId | "final_review" | "feedback_revision") => {
+      setEvents((current) => [
+        {
+          event_id: `evt_${String(current.length + 1).padStart(3, "0")}`,
+          task_id: "task_001",
+          type,
+          stage,
+          message: language === "zh" ? messageZh : messageEn,
+          created_at: new Date().toISOString(),
+        },
+        ...current,
+      ]);
+    },
+    [language],
+  );
 
   const updateStage = useCallback((stageId: StageId, patch: Partial<StageRun>) => {
     setStages((current) => current.map((stage) => (stage.id === stageId ? { ...stage, ...patch } : stage)));
   }, []);
 
-  const setFreshTask = useCallback(
-    (mode: RunMode) => {
-      const fresh = {
-        ...createInitialContext(mode),
-        user_input: {
-          ...createInitialContext(mode).user_input,
-          original_question: questionDraft.trim() || createInitialContext(mode).user_input.original_question,
-        },
-      };
-      setContext(fresh);
-      setStages(createInitialStages(fresh));
-      setVersions([]);
-      setEvents([
-        {
-          event_id: "evt_seed_001",
-          task_id: "task_001",
-          type: "task_created",
-          message: "task_context 已初始化，等待启动总控流程。",
-          created_at: new Date().toISOString(),
-        },
-      ]);
-      setActiveStage("question_understanding");
-      setReviewStage(null);
-      setPendingIndex(null);
-      return fresh;
-    },
-    [questionDraft],
-  );
+  const setFreshTask = useCallback(() => {
+    const fresh = {
+      ...createInitialContext(runMode),
+      user_input: {
+        ...createInitialContext(runMode).user_input,
+        original_question: questionDraft.trim() || createInitialContext(runMode).user_input.original_question,
+      },
+    };
+    setContext(fresh);
+    setStages(createInitialStages(fresh));
+    setVersions([]);
+    setEvents([
+      {
+        event_id: "evt_seed_001",
+        task_id: "task_001",
+        type: "task_created",
+        message: language === "zh" ? "任务已创建，等待启动总控。" : "Task created. Controller is ready.",
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    setActiveStage("question_understanding");
+    setReviewStage(null);
+    setPendingIndex(null);
+    return fresh;
+  }, [language, questionDraft, runMode]);
 
   const continueFrom = useCallback(
     async (startIndex: number, inputContext: TaskContext, inputVersions: VersionRecord[]) => {
@@ -171,17 +295,10 @@ function App() {
         const startTime = performance.now();
 
         setActiveStage(stage);
-        setInspectorTab("input");
         setContext((current) => ({ ...current, current_stage: stage }));
-        updateStage(stage, {
-          status: "running",
-          input,
-          output: null,
-          review: null,
-          duration: "0.0s",
-        });
-        appendEvent("stage_started", `${stageMeta[stage].label} 开始执行。`, stage);
-        await delay(520);
+        updateStage(stage, { status: "running", input, output: null, review: null, duration: "0.0s" });
+        appendEvent("stage_started", `${stageLabel.zh[stage]}开始执行。`, `${stageLabel.en[stage]} started.`, stage);
+        await delay(420);
 
         const response = createAgentResponse(stage, workingContext.task_id);
         updateStage(stage, {
@@ -189,20 +306,21 @@ function App() {
           output: response,
           duration: `${((performance.now() - startTime) / 1000).toFixed(1)}s`,
         });
-        setInspectorTab("output");
-        appendEvent("agent_output_received", `${stageMeta[stage].agent} 返回统一响应。`, stage);
-        await delay(460);
+        appendEvent(
+          "agent_output_received",
+          `${stageLabel.zh[stage]}返回统一响应。`,
+          `${stageLabel.en[stage]} returned a structured response.`,
+          stage,
+        );
+        await delay(360);
 
         const needsHuman = runMode === "manual" || (runMode === "hybrid" && manualGateStages.includes(stage));
         const review = createReviewRecord(stage, needsHuman ? "human_review" : "accept");
-        updateStage(stage, {
-          status: needsHuman ? "human_review" : "passed",
-          review,
-        });
-        setInspectorTab("review");
+        updateStage(stage, { status: needsHuman ? "human_review" : "passed", review });
         appendEvent(
-          needsHuman ? "human_review_requested" : "schema_validation_passed",
-          needsHuman ? `${stageMeta[stage].label} 命中人工审核门。` : `${stageMeta[stage].label} 通过 Review Gate。`,
+          needsHuman ? "human_review_requested" : "review_gate_passed",
+          needsHuman ? `${stageLabel.zh[stage]}需要人工确认。` : `${stageLabel.zh[stage]}通过 Review Gate。`,
+          needsHuman ? `${stageLabel.en[stage]} needs approval.` : `${stageLabel.en[stage]} passed the Review Gate.`,
           stage,
         );
 
@@ -215,40 +333,43 @@ function App() {
         }
 
         workingContext = mergeStagePayload(workingContext, stage, response);
-        workingContext = {
-          ...workingContext,
-          reviews: [...workingContext.reviews, review],
-        };
+        workingContext = { ...workingContext, reviews: [...workingContext.reviews, review] };
         const version = createVersion(stage, workingVersions.length);
         workingVersions = [...workingVersions, version];
-        workingContext = {
-          ...workingContext,
-          versions: workingVersions,
-        };
+        workingContext = { ...workingContext, versions: workingVersions };
         setVersions(workingVersions);
         setContext(workingContext);
-        appendEvent("context_snapshot_created", `${version.version_id} 已保存到 ${version.artifact_path}。`, stage);
-        await delay(420);
+        appendEvent(
+          "context_snapshot_created",
+          `${version.version_id} 已保存。`,
+          `${version.version_id} snapshot saved.`,
+          stage,
+        );
+        await delay(260);
       }
 
       setRunning(false);
-      appendEvent("task_completed", "总控最终审核通过，科研闭环 demo 完成。", "final_review");
+      appendEvent("task_completed", "总控审核通过，闭环完成。", "Final review passed. Loop completed.", "final_review");
     },
     [appendEvent, runMode, updateStage],
   );
 
   const startDemo = useCallback(async () => {
     if (running) return;
-    const fresh = setFreshTask(runMode);
+    const fresh = setFreshTask();
     setRunning(true);
-    appendEvent("task_started", `${runMode} 模式启动，多 Agent 总控开始调度。`);
+    appendEvent(
+      "task_started",
+      `总控已启动：推理 ${reasoning}，权限 ${approval}，记忆 ${memory}。`,
+      `Controller started: reasoning ${reasoning}, access ${approval}, memory ${memory}.`,
+    );
     await continueFrom(0, fresh, []);
-  }, [appendEvent, continueFrom, runMode, running, setFreshTask]);
+  }, [appendEvent, approval, continueFrom, memory, reasoning, running, setFreshTask]);
 
   const resetDemo = useCallback(() => {
     setRunning(false);
-    setFreshTask(runMode);
-  }, [runMode, setFreshTask]);
+    setFreshTask();
+  }, [setFreshTask]);
 
   const approveReview = useCallback(async () => {
     if (!reviewStage || pendingIndex === null || running) return;
@@ -259,53 +380,37 @@ function App() {
     const approvedReview: ReviewRecord = {
       ...createReviewRecord(stage, "accept"),
       operator: "human",
-      comment: "人工审核通过：方向、必填字段和下游可用性已确认。",
+      comment: language === "zh" ? "人工审核通过，继续进入下一阶段。" : "Human approval granted. Continue.",
     };
 
-    updateStage(stage, {
-      status: "passed",
-      review: approvedReview,
-    });
+    updateStage(stage, { status: "passed", review: approvedReview });
     setReviewStage(null);
     setPendingIndex(null);
-    appendEvent("human_review_approved", `${stageMeta[stage].label} 已人工通过。`, stage);
+    appendEvent("human_review_approved", `${stageLabel.zh[stage]}已批准。`, `${stageLabel.en[stage]} approved.`, stage);
 
     let nextContext = mergeStagePayload(context, stage, stageRun.output);
-    nextContext = {
-      ...nextContext,
-      reviews: [...nextContext.reviews, approvedReview],
-    };
+    nextContext = { ...nextContext, reviews: [...nextContext.reviews, approvedReview] };
     const nextVersion = createVersion(stage, versions.length);
     const nextVersions = [...versions, nextVersion];
-    nextContext = {
-      ...nextContext,
-      versions: nextVersions,
-    };
+    nextContext = { ...nextContext, versions: nextVersions };
     setContext(nextContext);
     setVersions(nextVersions);
-    appendEvent("context_snapshot_created", `${nextVersion.version_id} 已保存到 ${nextVersion.artifact_path}。`, stage);
+
     setRunning(true);
-    await delay(360);
+    await delay(260);
     await continueFrom(pendingIndex + 1, nextContext, nextVersions);
-  }, [appendEvent, context, continueFrom, pendingIndex, reviewStage, running, stages, updateStage, versions]);
+  }, [appendEvent, context, continueFrom, language, pendingIndex, reviewStage, running, stages, updateStage, versions]);
 
   const retryReviewStage = useCallback(async () => {
     if (!reviewStage || pendingIndex === null || running) return;
-    const retryFrom = pendingIndex;
     const stage = reviewStage;
     setReviewStage(null);
     setPendingIndex(null);
-    updateStage(stage, {
-      status: "retrying",
-      review: {
-        ...createReviewRecord(stage, "retry"),
-        comment: "人工要求同阶段重试，保留当前上下文不合并本次输出。",
-      },
-    });
-    appendEvent("stage_retry_requested", `${stageMeta[stage].label} 已进入重试。`, stage);
+    updateStage(stage, { status: "retrying", review: createReviewRecord(stage, "retry") });
+    appendEvent("stage_retry_requested", `${stageLabel.zh[stage]}重试。`, `${stageLabel.en[stage]} retry requested.`, stage);
     setRunning(true);
-    await delay(520);
-    await continueFrom(retryFrom, context, versions);
+    await delay(360);
+    await continueFrom(pendingIndex, context, versions);
   }, [appendEvent, context, continueFrom, pendingIndex, reviewStage, running, updateStage, versions]);
 
   const applyFeedback = useCallback(() => {
@@ -315,7 +420,7 @@ function App() {
       stage: "feedback_revision",
       trigger: "human_feedback",
       changed_fields: ["feedback_events", "research_plan", "evidence_map"],
-      summary: "人工反馈要求弱化强因果表述，并加入反向因果与失败判据。",
+      summary: language === "zh" ? "人工反馈触发轻量修订。" : "Human feedback triggered a light revision.",
       artifact_path: `versions/context_v${String(versions.length + 1).padStart(3, "0")}.json`,
       created_at: new Date().toISOString(),
     };
@@ -326,28 +431,380 @@ function App() {
       feedback_events: feedbackEvents,
       versions: [...current.versions, nextVersion],
     }));
-    appendEvent("feedback_revision_applied", "人工反馈已形成一次轻量 iteration_revision。", "feedback_revision");
-    setActiveView("research");
-  }, [appendEvent, context.iteration, versions.length]);
+    appendEvent("feedback_revision_applied", "反馈已写入下一轮。", "Feedback was saved for the next round.", "feedback_revision");
+  }, [appendEvent, context.iteration, language, versions.length]);
 
-  const flowNodes = useMemo<AgentFlowNode[]>(
+  const uploadedLabel = files.length ? files.join(", ") : t.noFiles;
+
+  return (
+    <div className="app-shell">
+      <aside className="side-rail">
+        <div className="brand-row">
+          <span className="brand-mark">
+            <Bot size={18} />
+          </span>
+          <div>
+            <strong>{t.appName}</strong>
+            <small>{t.appSub}</small>
+          </div>
+        </div>
+
+        <nav className="rail-nav" aria-label="Primary">
+          <button className={page === "workbench" ? "active" : ""} type="button" onClick={() => setPage("workbench")}>
+            <MessageSquareText size={16} />
+            {t.workbench}
+          </button>
+          <button className={page === "docs" ? "active" : ""} type="button" onClick={() => setPage("docs")}>
+            <HelpCircle size={16} />
+            {t.docs}
+          </button>
+        </nav>
+
+        <button className="language-button" type="button" onClick={() => setLanguage(language === "zh" ? "en" : "zh")}>
+          <Globe2 size={15} />
+          {language === "zh" ? "EN" : "中文"}
+        </button>
+
+        <section className="branch-panel">
+          <div className="section-title">
+            <span>{t.stateTree}</span>
+            <small>{completedCount}/{stages.length}</small>
+          </div>
+          <div className="branch-tree" aria-label={t.stateTree}>
+            {stages.map((stage, index) => (
+              <button
+                className={`branch-node ${stage.status} ${stage.id === activeStage ? "active" : ""}`}
+                key={stage.id}
+                type="button"
+                onClick={() => {
+                  setActiveStage(stage.id);
+                  setTreeOpen(true);
+                }}
+              >
+                <i />
+                <span>{stageLabel[language][stage.id]}</span>
+                <small>{statusLabel[language][stage.status]}</small>
+                {index < stages.length - 1 ? <b /> : null}
+              </button>
+            ))}
+          </div>
+          <p className="hint-text">{t.clickTree}</p>
+        </section>
+      </aside>
+
+      <main className="main-area">
+        <header className="top-strip">
+          <div>
+            <p>{t.currentStage}</p>
+            <h1>{finished ? statusLabel[language].completed : stageLabel[language][activeStage]}</h1>
+          </div>
+          <div className="top-stats">
+            <StatusMetric label={t.progress} value={`${progress}%`} />
+            <StatusMetric label={t.iteration} value={`R${context.iteration}`} />
+            <button className="ghost-button" type="button" onClick={resetDemo}>
+              <RotateCcw size={15} />
+              {t.reset}
+            </button>
+          </div>
+        </header>
+
+        {page === "workbench" ? (
+          <section className="focus-layout">
+            <section className="conversation-card">
+              <div className="hero-copy">
+                <p>{t.heroTitle}</p>
+                <span>{t.heroHint}</span>
+              </div>
+
+              <div className="composer">
+                <textarea
+                  aria-label={t.questionPlaceholder}
+                  value={questionDraft}
+                  onChange={(event) => setQuestionDraft(event.target.value)}
+                  placeholder={t.questionPlaceholder}
+                />
+                <div className="composer-footer">
+                  <label className="attach-button">
+                    <input
+                      multiple
+                      type="file"
+                      onChange={(event) => {
+                        const nextFiles = Array.from(event.target.files ?? []).map((file) => file.name);
+                        setFiles(nextFiles);
+                      }}
+                    />
+                    <Plus size={17} />
+                    <span className="tooltip">{t.addFile}</span>
+                  </label>
+                  <span className="file-hint">
+                    <Paperclip size={14} />
+                    {uploadedLabel}
+                  </span>
+                  <button
+                    className="main-action"
+                    disabled={running}
+                    type="button"
+                    onClick={context.current_stage === "human_review" ? approveReview : startDemo}
+                  >
+                    {running ? <Loader2 className="spin" size={17} /> : context.current_stage === "human_review" ? <CheckCircle2 size={17} /> : <Play size={17} />}
+                    {running ? t.running : context.current_stage === "human_review" ? t.approve : t.start}
+                  </button>
+                </div>
+              </div>
+
+              <ControllerSettings
+                approval={approval}
+                language={language}
+                memory={memory}
+                reasoning={reasoning}
+                setApproval={setApproval}
+                setMemory={setMemory}
+                setReasoning={setReasoning}
+                t={t}
+              />
+            </section>
+
+            <aside className="stage-panel">
+              <div className="panel-head">
+                <div>
+                  <p>{t.details}</p>
+                  <h2>{stageLabel[language][activeStageRun.id]}</h2>
+                </div>
+                <span className={`state-chip ${activeStageRun.status}`}>{statusLabel[language][activeStageRun.status]}</span>
+              </div>
+
+              <div className="output-card">
+                <strong>{t.outputPreview}</strong>
+                <OutputPreview language={language} response={activeStageRun.output} stage={activeStageRun.id} />
+                <button className="text-button" type="button" onClick={() => setJsonOpen(true)}>
+                  <FileText size={15} />
+                  JSON
+                </button>
+              </div>
+
+              <div className="event-card">
+                <strong>{t.eventLog}</strong>
+                {events.slice(0, 5).map((event) => (
+                  <p key={event.event_id}>
+                    <Clock3 size={13} />
+                    {event.message}
+                  </p>
+                ))}
+              </div>
+
+              <div className="result-card">
+                <strong>{t.resultReady}</strong>
+                <button className="text-button" type="button" onClick={applyFeedback}>
+                  <Sparkles size={15} />
+                  {language === "zh" ? "写入一次反馈迭代" : "Apply feedback revision"}
+                </button>
+              </div>
+            </aside>
+          </section>
+        ) : (
+          <DocsPage language={language} t={t} />
+        )}
+      </main>
+
+      {treeOpen ? (
+        <StateTreeModal
+          activeStage={activeStage}
+          language={language}
+          onClose={() => setTreeOpen(false)}
+          setActiveStage={setActiveStage}
+          stages={stages}
+          t={t}
+        />
+      ) : null}
+
+      {reviewStage ? (
+        <ReviewModal
+          language={language}
+          onApprove={approveReview}
+          onClose={() => setReviewStage(null)}
+          onRetry={retryReviewStage}
+          stage={stages.find((item) => item.id === reviewStage) ?? activeStageRun}
+          t={t}
+        />
+      ) : null}
+
+      {jsonOpen ? (
+        <JsonModal
+          data={{
+            stage: activeStageRun.id,
+            input: activeStageRun.input,
+            output: activeStageRun.output,
+            review: activeStageRun.review,
+            task_context_summary: context,
+          }}
+          onClose={() => setJsonOpen(false)}
+          title={language === "zh" ? "阶段 JSON 详情" : "Stage JSON details"}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ControllerSettings({
+  approval,
+  language,
+  memory,
+  reasoning,
+  setApproval,
+  setMemory,
+  setReasoning,
+  t,
+}: {
+  approval: ApprovalMode;
+  language: Language;
+  memory: MemoryLevel;
+  reasoning: ReasoningLevel;
+  setApproval: (value: ApprovalMode) => void;
+  setMemory: (value: MemoryLevel) => void;
+  setReasoning: (value: ReasoningLevel) => void;
+  t: (typeof copy)[Language];
+}) {
+  return (
+    <div className="settings-grid">
+      <SegmentedControl
+        icon={<Brain size={15} />}
+        label={t.reasoning}
+        options={[
+          ["low", t.low],
+          ["medium", t.medium],
+          ["high", t.high],
+          ["ultra", t.ultra],
+        ]}
+        value={reasoning}
+        onChange={(value) => setReasoning(value as ReasoningLevel)}
+      />
+      <SegmentedControl
+        icon={<LockKeyhole size={15} />}
+        label={t.approval}
+        options={[
+          ["ask", t.ask],
+          ["assist", t.assist],
+          ["auto", t.auto],
+        ]}
+        value={approval}
+        onChange={(value) => setApproval(value as ApprovalMode)}
+      />
+      <SegmentedControl
+        icon={<Sparkles size={15} />}
+        label={t.memory}
+        options={[
+          ["low", t.low],
+          ["medium", t.medium],
+          ["high", t.high],
+        ]}
+        value={memory}
+        onChange={(value) => setMemory(value as MemoryLevel)}
+      />
+      <div className="settings-note">
+        {language === "zh"
+          ? "这些设置暂时影响 mock 总控策略，后续会映射到真实 Agent 参数。"
+          : "These controls currently shape the mock controller and will map to real agent parameters later."}
+      </div>
+    </div>
+  );
+}
+
+function SegmentedControl({
+  icon,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onChange: (value: string) => void;
+  options: Array<[string, string]>;
+  value: string;
+}) {
+  return (
+    <div className="setting-row">
+      <div className="setting-label">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <div className="segmented-control">
+        {options.map(([id, text]) => (
+          <button className={value === id ? "active" : ""} key={id} type="button" onClick={() => onChange(id)}>
+            {text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatusMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="status-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function OutputPreview({
+  language,
+  response,
+  stage,
+}: {
+  language: Language;
+  response: AgentResponse | null;
+  stage: StageId;
+}) {
+  if (!response) {
+    return <p className="muted">{language === "zh" ? "等待该阶段输出。" : "Waiting for this stage output."}</p>;
+  }
+
+  const payload = response.payload as Record<string, unknown>;
+  const keys = Object.keys(payload);
+  return (
+    <div className="preview-list">
+      <p>
+        {language === "zh" ? "阶段" : "Stage"}：{stageLabel[language][stage]}
+      </p>
+      <p>
+        {language === "zh" ? "自评分" : "Self score"}：{Math.round(response.self_review.overall_score * 100)}%
+      </p>
+      <p>
+        {language === "zh" ? "写入字段" : "Written fields"}：{keys.join(", ")}
+      </p>
+    </div>
+  );
+}
+
+function StateTreeModal({
+  activeStage,
+  language,
+  onClose,
+  setActiveStage,
+  stages,
+  t,
+}: {
+  activeStage: StageId;
+  language: Language;
+  onClose: () => void;
+  setActiveStage: (stage: StageId) => void;
+  stages: StageRun[];
+  t: (typeof copy)[Language];
+}) {
+  const nodes = useMemo<FlowNode[]>(
     () =>
       stages.map((stage, index) => ({
         id: stage.id,
-        type: "agentNode",
-        position: {
-          x: (index % 3) * 280,
-          y: Math.floor(index / 3) * 190,
-        },
-        data: {
-          stage,
-          active: stage.id === activeStage,
-        },
+        type: "flowNode",
+        position: { x: (index % 3) * 300, y: Math.floor(index / 3) * 210 + 70 },
+        data: { stage, active: stage.id === activeStage, lang: language },
       })),
-    [activeStage, stages],
+    [activeStage, language, stages],
   );
 
-  const flowEdges = useMemo<Edge[]>(
+  const edges = useMemo<Edge[]>(
     () =>
       stageOrder.slice(0, -1).map((stage, index) => ({
         id: `${stage}-${stageOrder[index + 1]}`,
@@ -359,808 +816,96 @@ function App() {
     [stages],
   );
 
-  const nodeTypes = useMemo(() => ({ agentNode: AgentNode }), []);
-
   return (
-    <div className={`app-root surface-${surface}`}>
-      {surface === "app" ? <DesktopTitleBar /> : null}
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">
-            <Bot size={18} />
-          </div>
+    <div className="modal-backdrop">
+      <section className="tree-modal">
+        <div className="modal-titlebar">
           <div>
-            <strong>AI Scientist</strong>
-            <span>Research Cockpit</span>
+            <p>{t.stateTree}</p>
+            <h2>{t.fullTree}</h2>
           </div>
-        </div>
-
-        <button className="new-task-button" type="button" onClick={resetDemo}>
-          <Sparkles size={16} />
-          新建科研任务
-        </button>
-
-        <div className="search-box">
-          <Search size={15} />
-          <span>Search tasks, artifacts, schema</span>
-        </div>
-
-        <nav className="nav-list" aria-label="Main views">
-          {viewItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                className={activeView === item.id ? "nav-item active" : "nav-item"}
-                key={item.id}
-                type="button"
-                onClick={() => setActiveView(item.id)}
-              >
-                <Icon size={16} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="sidebar-section">
-          <p className="sidebar-label">Mode</p>
-          <div className="segmented vertical">
-            {(["auto", "manual", "hybrid"] as RunMode[]).map((mode) => (
-              <button
-                className={runMode === mode ? "active" : ""}
-                key={mode}
-                type="button"
-                onClick={() => {
-                  setRunMode(mode);
-                  setFreshTask(mode);
-                }}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="thread-list">
-          <p className="sidebar-label">Demo Threads</p>
-          <button className="thread-item active" type="button">
-            <MessageSquareText size={15} />
-            <span>AD 机制闭环</span>
-          </button>
-          <button className="thread-item" type="button">
-            <GitBranch size={15} />
-            <span>材料催化占位</span>
-          </button>
-          <button className="thread-item" type="button">
-            <Activity size={15} />
-            <span>天文观测占位</span>
+          <button className="close-button" type="button" onClick={onClose}>
+            <X size={18} />
+            {t.close}
           </button>
         </div>
-
-        <div className="sidebar-footer">
-          <div className="mini-status">
-            <span className="pulse-dot" />
-            Mock backend ready
-          </div>
-          <button className="icon-line-button" type="button">
-            <Settings2 size={15} />
-            Settings
-          </button>
+        <div className="tree-canvas">
+          <ReactFlow
+            edges={edges}
+            fitView
+            maxZoom={1.1}
+            minZoom={0.42}
+            nodes={nodes}
+            nodeTypes={flowNodeTypes}
+            nodesDraggable={false}
+            onNodeClick={(_, node) => setActiveStage(node.id as StageId)}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="#d8dee7" gap={22} size={1} />
+            <Controls position="bottom-right" showInteractive={false} />
+          </ReactFlow>
         </div>
-      </aside>
-
-      <main className="main-shell">
-        <TopBar
-          completedCount={completedCount}
-          context={context}
-          finished={finished}
-          onApprove={approveReview}
-          onReset={resetDemo}
-          onRun={startDemo}
-          onSurfaceChange={setSurface}
-          running={running}
-          surface={surface}
-          totalStages={stages.length}
-        />
-
-        {activeView === "workbench" ? (
-          <section className="workbench-grid">
-            <section className="command-panel">
-              <div className="panel-heading compact">
-                <span>Command</span>
-                <span>{context.task_id}</span>
-              </div>
-              <textarea
-                aria-label="Scientific question"
-                className="question-input"
-                value={questionDraft}
-                onChange={(event) => setQuestionDraft(event.target.value)}
-              />
-              <div className="command-actions">
-                <button className="primary-button" disabled={running} type="button" onClick={startDemo}>
-                  {running ? <Loader2 className="spin" size={16} /> : <Play size={16} />}
-                  Start
-                </button>
-                <button className="soft-button" type="button" onClick={resetDemo}>
-                  <RotateCcw size={16} />
-                  Reset
-                </button>
-              </div>
-
-              <div className="contract-card">
-                <p className="card-eyebrow">Data contract</p>
-                <h3>task_context</h3>
-                <div className="field-stack">
-                  {[
-                    "user_input",
-                    "question_card",
-                    "literature_cards",
-                    "evidence_cards",
-                    "knowledge_gaps",
-                    "hypothesis_cards",
-                    "evidence_map",
-                    "research_plan",
-                    "reviews",
-                    "versions",
-                  ].map((field) => (
-                    <span key={field}>{field}</span>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="canvas-panel">
-              <div className="panel-heading">
-                <div>
-                  <span>Workflow Canvas</span>
-                  <strong>总控状态机</strong>
-                </div>
-                <div className="status-chip neutral">
-                  <Clock3 size={14} />
-                  {context.current_stage}
-                </div>
-              </div>
-              <div className="flow-wrap">
-                <ReactFlow
-                  edges={flowEdges}
-                  fitView
-                  maxZoom={1.15}
-                  minZoom={0.52}
-                  nodes={flowNodes}
-                  nodeTypes={nodeTypes}
-                  nodesDraggable={false}
-                  nodesFocusable
-                  onNodeClick={(_, node) => {
-                    setActiveStage(node.id as StageId);
-                    setInspectorTab("output");
-                  }}
-                  panOnScroll
-                  proOptions={{ hideAttribution: true }}
-                >
-                  <Background color="#dfe4ea" gap={22} size={1} />
-                  <Controls position="bottom-right" showInteractive={false} />
-                </ReactFlow>
-              </div>
-            </section>
-
-            <StageInspector
-              activeStageRun={activeStageRun}
-              inspectorTab={inspectorTab}
-              onTabChange={setInspectorTab}
-            />
-
-            <EventConsole events={events} />
-          </section>
-        ) : null}
-
-        {activeView === "research" ? (
-          <ResearchView context={context} onApplyFeedback={applyFeedback} />
-        ) : null}
-
-        {activeView === "artifacts" ? <ArtifactView artifacts={artifactItems} versions={versions} /> : null}
-
-        {activeView === "api" ? <ApiView specs={apiSpecs} /> : null}
-
-        {activeView === "submission" ? (
-          <SubmissionView context={context} completedCount={completedCount} totalStages={stages.length} />
-        ) : null}
-      </main>
-
-      {reviewStage ? (
-        <ReviewModal
-          onApprove={approveReview}
-          onClose={() => setReviewStage(null)}
-          onRetry={retryReviewStage}
-          stage={stages.find((item) => item.id === reviewStage) ?? activeStageRun}
-        />
-      ) : null}
+      </section>
     </div>
   );
 }
 
-function DesktopTitleBar() {
+function FlowNodeCard({ data }: NodeProps<FlowNode>) {
+  const { active, lang, stage } = data;
   return (
-    <div className="desktop-titlebar">
-      <div className="traffic-lights">
-        <span className="red" />
-        <span className="yellow" />
-        <span className="green" />
-      </div>
-      <div className="desktop-title">AI Scientist Cockpit</div>
-      <div className="desktop-actions">
-        <PanelRight size={14} />
-      </div>
-    </div>
-  );
-}
-
-function TopBar({
-  completedCount,
-  context,
-  finished,
-  onApprove,
-  onReset,
-  onRun,
-  onSurfaceChange,
-  running,
-  surface,
-  totalStages,
-}: {
-  completedCount: number;
-  context: TaskContext;
-  finished: boolean;
-  onApprove: () => void;
-  onReset: () => void;
-  onRun: () => void;
-  onSurfaceChange: (mode: SurfaceMode) => void;
-  running: boolean;
-  surface: SurfaceMode;
-  totalStages: number;
-}) {
-  return (
-    <header className="topbar">
-      <div className="task-title">
-        <div className="task-icon">
-          <Sparkles size={18} />
-        </div>
-        <div>
-          <p>Research task</p>
-          <h1>AD mechanism closed loop</h1>
-        </div>
-      </div>
-
-      <div className="topbar-metrics">
-        <Metric label="Stage" value={`${completedCount}/${totalStages}`} />
-        <Metric label="Mode" value={context.mode} />
-        <Metric label="Iteration" value={`R${context.iteration}`} />
-        <Metric label="Status" value={finished ? "completed" : String(context.current_stage)} />
-      </div>
-
-      <div className="topbar-actions">
-        <div className="segmented">
-          {(["web", "app"] as SurfaceMode[]).map((mode) => (
-            <button
-              className={surface === mode ? "active" : ""}
-              key={mode}
-              type="button"
-              onClick={() => onSurfaceChange(mode)}
-            >
-              {mode === "web" ? <LayoutDashboard size={14} /> : <AppWindow size={14} />}
-              {mode}
-            </button>
-          ))}
-        </div>
-        <button className="soft-button" type="button" onClick={onReset}>
-          <RefreshCw size={16} />
-          Reset
-        </button>
-        {context.current_stage === "human_review" ? (
-          <button className="primary-button" type="button" onClick={onApprove}>
-            <CheckCircle2 size={16} />
-            Approve
-          </button>
-        ) : (
-          <button className="primary-button" disabled={running} type="button" onClick={onRun}>
-            {running ? <Loader2 className="spin" size={16} /> : <Play size={16} />}
-            Run
-          </button>
-        )}
-      </div>
-    </header>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function AgentNode({ data }: NodeProps<AgentFlowNode>) {
-  const { stage, active } = data;
-  return (
-    <button className={`agent-node ${stage.status} ${active ? "active" : ""}`} type="button">
+    <button className={`flow-node ${stage.status} ${active ? "active" : ""}`} type="button">
       <Handle className="node-handle" position={Position.Left} type="target" />
-      <div className="agent-node-top">
-        <div className="agent-icon">
-          {stage.status === "running" || stage.status === "validating" ? (
-            <Loader2 className="spin" size={17} />
-          ) : stage.status === "passed" ? (
-            <CheckCircle2 size={17} />
-          ) : stage.status === "human_review" ? (
-            <CircleAlert size={17} />
-          ) : (
-            <Bot size={17} />
-          )}
-        </div>
-        <span className={`status-pill ${stage.status}`}>{statusText[stage.status]}</span>
-      </div>
-      <h3>{stage.label}</h3>
-      <p>{stage.agent}</p>
-      <div className="agent-node-foot">
-        <span>{stage.duration}</span>
-        <span>{stage.allowedWrites[0]}</span>
-      </div>
+      <span>{statusLabel[lang][stage.status]}</span>
+      <strong>{stageLabel[lang][stage.id]}</strong>
+      <small>{stageMeta[stage.id].allowedWrites.join(", ")}</small>
       <Handle className="node-handle" position={Position.Right} type="source" />
     </button>
   );
 }
 
-function StageInspector({
-  activeStageRun,
-  inspectorTab,
-  onTabChange,
-}: {
-  activeStageRun: StageRun;
-  inspectorTab: "input" | "output" | "review";
-  onTabChange: (tab: "input" | "output" | "review") => void;
-}) {
-  const data =
-    inspectorTab === "input"
-      ? activeStageRun.input
-      : inspectorTab === "output"
-        ? activeStageRun.output ?? { status: "waiting_for_agent_output" }
-        : activeStageRun.review ?? { status: "waiting_for_review_gate" };
-
-  return (
-    <aside className="inspector-panel">
-      <div className="panel-heading">
-        <div>
-          <span>Stage Inspector</span>
-          <strong>{activeStageRun.label}</strong>
-        </div>
-        <span className={`status-pill ${activeStageRun.status}`}>{statusText[activeStageRun.status]}</span>
-      </div>
-
-      <div className="score-row">
-        <ScoreCard label="Self" value={activeStageRun.output?.self_review.overall_score ?? 0} />
-        <ScoreCard label="Gate" value={activeStageRun.review?.overall_score ?? 0} />
-      </div>
-
-      <div className="inspector-summary">
-        <p>{activeStageRun.description}</p>
-        <div>
-          {activeStageRun.allowedWrites.map((field) => (
-            <span key={field}>{field}</span>
-          ))}
-        </div>
-      </div>
-
-      <div className="tabbar">
-        {(["input", "output", "review"] as const).map((tab) => (
-          <button className={inspectorTab === tab ? "active" : ""} key={tab} type="button" onClick={() => onTabChange(tab)}>
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      <JsonBlock data={data} />
-    </aside>
-  );
-}
-
-function ScoreCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="score-card">
-      <span>{label}</span>
-      <strong>{value ? `${Math.round(value * 100)}%` : "--"}</strong>
-      <div className="score-track">
-        <i style={{ width: `${Math.max(0, Math.min(100, value * 100))}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function EventConsole({ events }: { events: EventLog[] }) {
-  return (
-    <section className="event-console">
-      <div className="panel-heading compact">
-        <span>Event Console</span>
-        <span>{events.length} events</span>
-      </div>
-      <div className="event-list">
-        {events.map((event) => (
-          <div className="event-row" key={event.event_id}>
-            <TerminalSquare size={15} />
-            <time>{new Date(event.created_at).toLocaleTimeString()}</time>
-            <strong>{event.type}</strong>
-            <span>{event.message}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ResearchView({ context, onApplyFeedback }: { context: TaskContext; onApplyFeedback: () => void }) {
-  const plan = context.research_plan?.plans[0]?.plan;
-  const evidenceCount = context.evidence_cards.length;
-  const hypothesisCount = context.hypothesis_cards.length;
-  const finalScore = context.final_review?.overall_score ?? 0;
-
-  return (
-    <section className="research-view">
-      <div className="research-hero">
-        <div>
-          <p className="card-eyebrow">Research Output Panels</p>
-          <h2>{context.question_card?.core_question ?? "等待 question_card 写入"}</h2>
-        </div>
-        <button className="primary-button" type="button" onClick={onApplyFeedback}>
-          <GitCommitVertical size={16} />
-          Apply Feedback
-        </button>
-      </div>
-
-      <div className="kpi-grid">
-        <MetricCard icon={ListChecks} label="Evidence Cards" value={String(evidenceCount)} tone="green" />
-        <MetricCard icon={GitBranch} label="Hypotheses" value={String(hypothesisCount)} tone="blue" />
-        <MetricCard icon={ShieldCheck} label="Final Review" value={finalScore ? `${Math.round(finalScore * 100)}%` : "--"} tone="purple" />
-        <MetricCard icon={Database} label="Feedback Events" value={String(context.feedback_events.length)} tone="amber" />
-      </div>
-
-      <div className="research-grid">
-        <section className="content-panel span-2">
-          <div className="panel-heading">
-            <strong>Question Card</strong>
-            <span>question_card</span>
-          </div>
-          {context.question_card ? (
-            <div className="question-card-view">
-              <div>
-                <p>研究对象</p>
-                <strong>{context.question_card.research_object.name}</strong>
-              </div>
-              <div>
-                <p>问题类型</p>
-                <strong>{context.question_card.question_type}</strong>
-              </div>
-              <div>
-                <p>关键词</p>
-                <div className="tag-wrap">
-                  {context.question_card.search_keywords.en.slice(0, 5).map((keyword) => (
-                    <span key={keyword}>{keyword}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <EmptyState text="question_card 尚未生成" />
-          )}
-        </section>
-
-        <section className="content-panel">
-          <div className="panel-heading">
-            <strong>Evidence Cards</strong>
-            <span>support / oppose</span>
-          </div>
-          <div className="evidence-list">
-            {context.evidence_cards.map((item) => (
-              <article className={`evidence-card ${item.support_direction}`} key={item.evidence_id}>
-                <span>{item.evidence_id}</span>
-                <h3>{item.claim}</h3>
-                <p>{item.summary}</p>
-                <strong>{Math.round(item.strength_score * 100)}%</strong>
-              </article>
-            ))}
-            {!context.evidence_cards.length ? <EmptyState text="evidence_cards 尚未写入" /> : null}
-          </div>
-        </section>
-
-        <section className="content-panel">
-          <div className="panel-heading">
-            <strong>Hypothesis Tournament</strong>
-            <span>scoreboard</span>
-          </div>
-          <div className="hypothesis-table">
-            {context.hypothesis_cards.map((item) => (
-              <article key={item.hypothesis_id}>
-                <div>
-                  <strong>{item.hypothesis_id}</strong>
-                  <span>{Math.round(item.initial_scores.testability * 100)} testability</span>
-                </div>
-                <p>{item.statement}</p>
-              </article>
-            ))}
-            {!context.hypothesis_cards.length ? <EmptyState text="hypothesis_cards 尚未生成" /> : null}
-          </div>
-        </section>
-
-        <section className="content-panel span-2">
-          <div className="panel-heading">
-            <strong>Evidence Map</strong>
-            <span>support / oppose / uncertain</span>
-          </div>
-          {context.evidence_map.length ? (
-            <div className="map-grid">
-              {context.evidence_map.map((item) => (
-                <article key={item.hypothesis_id}>
-                  <div className="map-score">{Math.round(item.evidence_strength_score * 100)}%</div>
-                  <h3>{item.hypothesis_id}</h3>
-                  <p>{item.evidence_summary.support}</p>
-                  <p>{item.evidence_summary.oppose}</p>
-                  <div className="tag-wrap">
-                    {item.main_limitations.map((limitation) => (
-                      <span key={limitation}>{limitation}</span>
-                    ))}
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <EmptyState text="evidence_map 尚未生成" />
-          )}
-        </section>
-
-        <section className="content-panel span-2">
-          <div className="panel-heading">
-            <strong>Research Plan</strong>
-            <span>methods / metrics / falsification</span>
-          </div>
-          {plan ? (
-            <div className="plan-view">
-              <h3>{plan.paper_title}</h3>
-              <p>{plan.paper_abstract}</p>
-              <div className="plan-columns">
-                <PlanList title="Methods" items={plan.technical_details.required_methods} />
-                <PlanList title="Metrics" items={plan.experiments.metrics.map((metric) => metric.name)} />
-                <PlanList title="Falsification" items={plan.results.falsification_criteria} />
-              </div>
-            </div>
-          ) : (
-            <EmptyState text="research_plan 尚未输出" />
-          )}
-        </section>
-
-        <section className="content-panel">
-          <div className="panel-heading">
-            <strong>Feedback Events</strong>
-            <span>iteration_revision</span>
-          </div>
-          {context.feedback_events.map((event) => (
-            <article className="feedback-card" key={event.feedback_id}>
-              <strong>{event.controller_action}</strong>
-              <p>{event.result_summary}</p>
-              <span>{event.revision_suggestion}</span>
-            </article>
-          ))}
-          {!context.feedback_events.length ? <EmptyState text="等待人工反馈或 Feedback Runner" /> : null}
-        </section>
-      </div>
-    </section>
-  );
-}
-
-function MetricCard({
-  icon: Icon,
-  label,
-  tone,
-  value,
-}: {
-  icon: typeof ListChecks;
-  label: string;
-  tone: "green" | "blue" | "purple" | "amber";
-  value: string;
-}) {
-  return (
-    <div className={`metric-card ${tone}`}>
-      <Icon size={18} />
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function PlanList({ items, title }: { items: string[]; title: string }) {
-  return (
-    <div className="plan-list">
-      <strong>{title}</strong>
-      {items.map((item) => (
-        <span key={item}>{item}</span>
-      ))}
-    </div>
-  );
-}
-
-function ArtifactView({ artifacts, versions }: { artifacts: ArtifactItem[]; versions: VersionRecord[] }) {
-  return (
-    <section className="split-view">
-      <div className="content-panel">
-        <div className="panel-heading">
-          <strong>Artifact Browser</strong>
-          <span>{artifacts.length} files</span>
-        </div>
-        <div className="artifact-list">
-          {artifacts.map((artifact) => (
-            <article key={artifact.artifact_id}>
-              <FileJson size={17} />
-              <div>
-                <strong>{artifact.path}</strong>
-                <p>{artifact.description}</p>
-              </div>
-              <span className={`mini-pill ${artifact.status}`}>{artifact.status}</span>
-            </article>
-          ))}
-        </div>
-      </div>
-      <VersionTimeline versions={versions} />
-    </section>
-  );
-}
-
-function VersionTimeline({ versions }: { versions: VersionRecord[] }) {
-  return (
-    <div className="content-panel">
-      <div className="panel-heading">
-        <strong>Version Timeline</strong>
-        <span>{versions.length} snapshots</span>
-      </div>
-      <div className="timeline">
-        {versions.map((version) => (
-          <article key={version.version_id}>
-            <div className="timeline-dot" />
-            <span>{version.version_id}</span>
-            <strong>{version.summary}</strong>
-            <p>{version.artifact_path}</p>
-          </article>
-        ))}
-        {!versions.length ? <EmptyState text="运行 demo 后会生成 context_v001 等快照" /> : null}
-      </div>
-    </div>
-  );
-}
-
-function ApiView({ specs }: { specs: ApiSpec[] }) {
-  return (
-    <section className="content-panel full-height">
-      <div className="panel-heading">
-        <strong>Backend API Contract</strong>
-        <span>mock-first, backend-ready</span>
-      </div>
-      <div className="api-table">
-        {specs.map((spec) => (
-          <article key={`${spec.method}-${spec.path}`}>
-            <span className={`method ${spec.method.toLowerCase()}`}>{spec.method}</span>
-            <code>{spec.path}</code>
-            <p>{spec.description}</p>
-            <strong>{spec.owner}</strong>
-            <span className={`mini-pill ${spec.status}`}>{spec.status}</span>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function SubmissionView({
-  completedCount,
-  context,
-  totalStages,
-}: {
-  completedCount: number;
-  context: TaskContext;
-  totalStages: number;
-}) {
-  return (
-    <section className="submission-view">
-      <div className="submission-header">
-        <p className="card-eyebrow">Submission View</p>
-        <h2>面向比赛提交材料的一页式证据总览</h2>
-      </div>
-      <div className="submission-grid">
-        <SubmissionCard title="可交互前端入口" value="React/Vite demo" icon={LayoutDashboard} />
-        <SubmissionCard title="可调用 API" value={`${apiSpecs.length} mocked specs`} icon={Braces} />
-        <SubmissionCard title="代表性案例" value="AD mechanism" icon={Activity} />
-        <SubmissionCard title="闭环阶段" value={`${completedCount}/${totalStages}`} icon={CheckCircle2} />
-      </div>
-      <div className="content-panel">
-        <div className="panel-heading">
-          <strong>Checklist</strong>
-          <span>from docs</span>
-        </div>
-        <div className="checklist">
-          {[
-            ["question_card", Boolean(context.question_card)],
-            ["evidence_cards", context.evidence_cards.length > 0],
-            ["hypothesis_cards", context.hypothesis_cards.length > 0],
-            ["evidence_map", context.evidence_map.length > 0],
-            ["research_plan", Boolean(context.research_plan)],
-            ["version_diff", context.versions.length > 1],
-            ["final_review", Boolean(context.final_review)],
-          ].map(([label, passed]) => (
-            <div className={passed ? "passed" : ""} key={String(label)}>
-              {passed ? <CheckCircle2 size={16} /> : <Clock3 size={16} />}
-              <span>{label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function SubmissionCard({
-  icon: Icon,
-  title,
-  value,
-}: {
-  icon: typeof LayoutDashboard;
-  title: string;
-  value: string;
-}) {
-  return (
-    <article className="submission-card">
-      <Icon size={19} />
-      <span>{title}</span>
-      <strong>{value}</strong>
-    </article>
-  );
-}
+const flowNodeTypes = { flowNode: FlowNodeCard };
 
 function ReviewModal({
+  language,
   onApprove,
   onClose,
   onRetry,
   stage,
+  t,
 }: {
+  language: Language;
   onApprove: () => void;
   onClose: () => void;
   onRetry: () => void;
   stage: StageRun;
+  t: (typeof copy)[Language];
 }) {
   return (
     <div className="modal-backdrop">
       <section className="review-modal">
-        <div className="modal-header">
+        <div className="modal-titlebar">
           <div>
-            <p className="card-eyebrow">Human-in-the-loop Review Gate</p>
-            <h2>{stage.label}</h2>
+            <p>{t.reviewTitle}</p>
+            <h2>{stageLabel[language][stage.id]}</h2>
           </div>
           <button className="icon-button" type="button" onClick={onClose}>
-            <X size={17} />
+            <X size={18} />
           </button>
         </div>
-        <div className="review-body">
-          <ScoreCard label="Self Review" value={stage.output?.self_review.overall_score ?? 0} />
-          <ScoreCard label="Controller Gate" value={stage.review?.overall_score ?? 0.78} />
-          <p>{stage.review?.comment ?? "Hybrid 模式要求人工确认后继续。"}</p>
-          <div className="risk-list">
-            <span>字段完整性</span>
-            <span>证据追溯</span>
-            <span>下游可用性</span>
-            <span>版本快照</span>
+        <div className="review-content">
+          <p>{t.reviewBody}</p>
+          <div className="review-score">
+            <span>Self {stage.output ? Math.round(stage.output.self_review.overall_score * 100) : "--"}%</span>
+            <span>Gate {stage.review ? Math.round(stage.review.overall_score * 100) : "--"}%</span>
           </div>
         </div>
         <div className="modal-actions">
-          <button className="soft-button" type="button" onClick={onRetry}>
-            <RefreshCw size={16} />
-            Retry
+          <button className="ghost-button" type="button" onClick={onRetry}>
+            {t.retry}
           </button>
-          <button className="primary-button" type="button" onClick={onApprove}>
-            <CheckCircle2 size={16} />
-            Approve & Continue
+          <button className="main-action" type="button" onClick={onApprove}>
+            <CheckCircle2 size={17} />
+            {t.continue}
           </button>
         </div>
       </section>
@@ -1168,20 +913,49 @@ function ReviewModal({
   );
 }
 
-function JsonBlock({ data }: { data: unknown }) {
+function JsonModal({ data, onClose, title }: { data: unknown; onClose: () => void; title: string }) {
   return (
-    <pre className="json-block">
-      <code>{JSON.stringify(data, null, 2)}</code>
-    </pre>
+    <div className="modal-backdrop">
+      <section className="json-modal">
+        <div className="modal-titlebar">
+          <h2>{title}</h2>
+          <button className="close-button" type="button" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <pre className="json-block">
+          <code>{JSON.stringify(data, null, 2)}</code>
+        </pre>
+      </section>
+    </div>
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+function DocsPage({ language, t }: { language: Language; t: (typeof copy)[Language] }) {
+  const items = [t.step1, t.step2, t.step3, t.step4];
   return (
-    <div className="empty-state">
-      <Pause size={16} />
-      <span>{text}</span>
-    </div>
+    <section className="docs-page">
+      <div className="docs-hero">
+        <p>{t.docs}</p>
+        <h2>{t.docsTitle}</h2>
+        <span>{t.docsLead}</span>
+      </div>
+      <div className="docs-grid">
+        {items.map((item) => (
+          <article key={item}>
+            <ChevronRight size={16} />
+            <p>{item}</p>
+          </article>
+        ))}
+      </div>
+      <article className="docs-note">
+        <Upload size={18} />
+        <div>
+          <strong>{language === "zh" ? "后端落地说明" : "Backend integration"}</strong>
+          <p>{t.docBackend}</p>
+        </div>
+      </article>
+    </section>
   );
 }
 
