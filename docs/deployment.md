@@ -1,8 +1,8 @@
-# Deployment Notes
+# EurekaLoop Deployment Notes
 
 ## Web Deployment
 
-The app is a static Vite build.
+EurekaLoop is currently a static Vite web app.
 
 ```bash
 npm install
@@ -27,7 +27,8 @@ Then replace the mock runner with a real API client:
 - task creation
 - task start
 - stage detail fetch
-- Review Gate action submit
+- inline Review Gate action submit
+- module revision and rerun submit
 - artifact list fetch
 - SSE event stream
 
@@ -36,7 +37,7 @@ Then replace the mock runner with a real API client:
 Current recommendation:
 
 1. Finish and test the browser experience first.
-2. Connect the real backend API and event stream.
+2. Connect the real backend API, Artifact Service, and event stream.
 3. Only then decide whether the team still needs a desktop app.
 4. If yes, wrap the same React/Vite frontend with Tauri for a lightweight shell.
 5. Let the Tauri backend call the same HTTP backend or local orchestrator.

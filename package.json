@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Multi-agent AI Scientist research cockpit frontend.",
+  "description": "EurekaLoop conversation-first multi-agent AI Scientist frontend.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
