@@ -22,6 +22,8 @@ From `总控层与前端设计方案v0.1.md`:
 - Revision feedback is recorded as a user message and reruns the corresponding module.
 - The conversation thread becomes the main Stage Inspector: every module output is visible in order, with JSON details available on demand.
 - The thin message index rail supports jumping between question, module outputs, revisions, and final output.
+- The project sidebar keeps separate frontend sessions so each project can preserve its own conversation, current stage, drafts, files, and Review Gate state.
+- The full visual state tree now separates the six main workflow stages from each stage's writable artifacts and output-derived detail nodes.
 
 ## Competition Alignment
 
@@ -31,3 +33,4 @@ From `赛题文档.md`:
 - It shows representative input and output for every module, which can be reused in the final PPT/PDF.
 - It demonstrates human feedback and rerun behavior rather than only a one-shot generated answer.
 - It keeps the future API, artifact, event stream, and deployment path explicit for later implementation.
+- Backend-facing interactions are tracked in `docs/backend-integration-guide.md` and should be updated whenever project, review, file, or state-tree behavior changes.

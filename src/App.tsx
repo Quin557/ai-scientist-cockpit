@@ -10,6 +10,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
+  Archive,
+  ArrowDown,
   Bot,
   Brain,
   Check,
@@ -17,16 +19,23 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  FilePlus2,
   FileJson,
   Globe2,
+  GripVertical,
   HelpCircle,
+  ListFilter,
   Loader2,
   LockKeyhole,
   MessageSquareText,
+  MoreHorizontal,
   Paperclip,
+  PanelLeft,
   Plus,
+  PlusCircle,
   RotateCcw,
   Send,
+  SlidersHorizontal,
   Sparkles,
   Upload,
   X,
@@ -54,8 +63,21 @@ type ApprovalMode = "ask" | "assist" | "auto";
 type MemoryLevel = "low" | "medium" | "high";
 type MessageKind = "user" | "agent" | "controller";
 type MenuId = "reasoning" | "approval" | "memory" | null;
+type ProjectMenuPanel = "root" | "sidebar" | "sort" | null;
+type ProjectGroupMode = "project" | "recent" | "time" | "movedown";
+type ProjectSortMode = "manual" | "created" | "updated";
 
-type FlowNode = Node<{ stage: StageRun; active: boolean; lang: Language }, "flowNode">;
+type FlowNode = Node<FlowNodeData, "flowNode">;
+
+interface FlowNodeData extends Record<string, unknown> {
+  active: boolean;
+  kind: "stage" | "artifact" | "feedback";
+  lang: Language;
+  stage?: StageId;
+  status?: StageRun["status"];
+  subtitle: string;
+  title: string;
+}
 
 interface ThreadMessage {
   id: string;
@@ -74,6 +96,25 @@ interface PickerOption<T extends string> {
   value: T;
   label: string;
   description?: string;
+}
+
+interface ProjectSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  context: TaskContext;
+  stages: StageRun[];
+  events: EventLog[];
+  versions: VersionRecord[];
+  messages: ThreadMessage[];
+  activeStage: StageId;
+  reviewStage: StageId | null;
+  pendingIndex: number | null;
+  questionDraft: string;
+  hasSubmittedQuestion: boolean;
+  files: string[];
+  feedbackDrafts: Record<string, string>;
 }
 
 const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -162,7 +203,19 @@ const copy = {
     noFiles: "未添加文件",
     start: "启动总控",
     running: "运行中",
-    newTask: "新任务",
+    newTask: "重置当前项目",
+    projects: "项目",
+    newProject: "创建新项目",
+    archiveAll: "归档所有聊天",
+    organizeSidebar: "整理侧边栏",
+    sortBy: "排序条件",
+    groupByProject: "按项目",
+    recentProjects: "近期项目",
+    timeOrder: "按时间顺序",
+    moveDown: "下移",
+    manualSort: "手动排序",
+    createdTime: "创建时间",
+    recentUpdated: "最近更新",
     stateTree: "状态树",
     fullTree: "完整可视化状态树",
     close: "退出",
@@ -178,7 +231,7 @@ const copy = {
     ultra: "超高",
     ask: "请求批准",
     assist: "替我审批",
-    auto: "完全访问",
+    auto: "完全自动",
     approveContinue: "批准继续",
     revise: "提交修改并重跑",
     revisePlaceholder: "写下你不满意的地方，系统会把这段意见交给当前模块重新输出。",
@@ -212,7 +265,19 @@ const copy = {
     noFiles: "No files attached",
     start: "Start controller",
     running: "Running",
-    newTask: "New task",
+    newTask: "Reset current project",
+    projects: "Projects",
+    newProject: "New project",
+    archiveAll: "Archive all chats",
+    organizeSidebar: "Organize sidebar",
+    sortBy: "Sort by",
+    groupByProject: "By project",
+    recentProjects: "Recent projects",
+    timeOrder: "By time",
+    moveDown: "Move down",
+    manualSort: "Manual",
+    createdTime: "Created",
+    recentUpdated: "Recently updated",
     stateTree: "State tree",
     fullTree: "Full visual state tree",
     close: "Close",
@@ -228,7 +293,7 @@ const copy = {
     ultra: "Ultra",
     ask: "Ask approval",
     assist: "Approve for me",
-    auto: "Full access",
+    auto: "Full auto",
     approveContinue: "Approve and continue",
     revise: "Revise and rerun",
     revisePlaceholder: "Describe what should improve. The current module will rerun with this feedback.",
@@ -252,6 +317,56 @@ const copy = {
   },
 };
 
+function makeProjectId(index: number) {
+  return `project_${String(index).padStart(3, "0")}_${Date.now().toString(36)}`;
+}
+
+function truncateTitle(value: string, fallback: string) {
+  const clean = value.replace(/\s+/g, " ").trim();
+  if (!clean) return fallback;
+  return clean.length > 22 ? `${clean.slice(0, 22)}...` : clean;
+}
+
+function createProjectSession(index: number, mode: RunMode, language: Language, title?: string): ProjectSession {
+  const context = createInitialContext(mode);
+  const preparedContext: TaskContext = {
+    ...context,
+    user_input: {
+      ...context.user_input,
+      user_constraints: {
+        ...context.user_input.user_constraints,
+        language: language === "zh" ? "zh-CN" : "en-US",
+      },
+    },
+  };
+  const now = new Date().toISOString();
+  return {
+    id: makeProjectId(index),
+    title: title ?? (language === "zh" ? `新科研项目 ${index}` : `Research project ${index}`),
+    createdAt: now,
+    updatedAt: now,
+    context: preparedContext,
+    stages: createInitialStages(preparedContext),
+    events: seedEvents,
+    versions: [],
+    messages: [],
+    activeStage: "question_understanding",
+    reviewStage: null,
+    pendingIndex: null,
+    questionDraft: "",
+    hasSubmittedQuestion: false,
+    files: [],
+    feedbackDrafts: {},
+  };
+}
+
+function deriveProjectTitle(project: ProjectSession, messages: ThreadMessage[], questionDraft: string) {
+  const firstQuestion = messages.find((message) => message.kind === "user" && !message.stage)?.body;
+  if (firstQuestion) return truncateTitle(firstQuestion, project.title);
+  if (project.messages.length === 0 && questionDraft.trim()) return truncateTitle(questionDraft, project.title);
+  return project.title;
+}
+
 function App() {
   const [language, setLanguage] = useState<Language>("zh");
   const [page, setPage] = useState<PageId>("workbench");
@@ -259,21 +374,27 @@ function App() {
   const [approval, setApproval] = useState<ApprovalMode>("assist");
   const [memory, setMemory] = useState<MemoryLevel>("medium");
   const [openMenu, setOpenMenu] = useState<MenuId>(null);
-  const [context, setContext] = useState<TaskContext>(() => createInitialContext("hybrid"));
-  const [stages, setStages] = useState<StageRun[]>(() => createInitialStages(createInitialContext("hybrid")));
-  const [events, setEvents] = useState<EventLog[]>(seedEvents);
-  const [versions, setVersions] = useState<VersionRecord[]>([]);
-  const [messages, setMessages] = useState<ThreadMessage[]>([]);
-  const [activeStage, setActiveStage] = useState<StageId>("question_understanding");
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [projectSubmenu, setProjectSubmenu] = useState<ProjectMenuPanel>(null);
+  const [projectGroupMode, setProjectGroupMode] = useState<ProjectGroupMode>("project");
+  const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>("manual");
+  const [projects, setProjects] = useState<ProjectSession[]>(() => [createProjectSession(1, "hybrid", "zh", "2026TZB")]);
+  const [activeProjectId, setActiveProjectId] = useState(() => projects[0].id);
+  const [context, setContext] = useState<TaskContext>(() => projects[0].context);
+  const [stages, setStages] = useState<StageRun[]>(() => projects[0].stages);
+  const [events, setEvents] = useState<EventLog[]>(() => projects[0].events);
+  const [versions, setVersions] = useState<VersionRecord[]>(() => projects[0].versions);
+  const [messages, setMessages] = useState<ThreadMessage[]>(() => projects[0].messages);
+  const [activeStage, setActiveStage] = useState<StageId>(() => projects[0].activeStage);
   const [running, setRunning] = useState(false);
-  const [reviewStage, setReviewStage] = useState<StageId | null>(null);
-  const [pendingIndex, setPendingIndex] = useState<number | null>(null);
+  const [reviewStage, setReviewStage] = useState<StageId | null>(() => projects[0].reviewStage);
+  const [pendingIndex, setPendingIndex] = useState<number | null>(() => projects[0].pendingIndex);
   const [treeOpen, setTreeOpen] = useState(false);
   const [jsonOpen, setJsonOpen] = useState<{ title: string; data: unknown } | null>(null);
-  const [questionDraft, setQuestionDraft] = useState("");
-  const [hasSubmittedQuestion, setHasSubmittedQuestion] = useState(false);
-  const [files, setFiles] = useState<string[]>([]);
-  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, string>>({});
+  const [questionDraft, setQuestionDraft] = useState(() => projects[0].questionDraft);
+  const [hasSubmittedQuestion, setHasSubmittedQuestion] = useState(() => projects[0].hasSubmittedQuestion);
+  const [files, setFiles] = useState<string[]>(() => projects[0].files);
+  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, string>>(() => projects[0].feedbackDrafts);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
 
   const t = copy[language];
@@ -284,10 +405,103 @@ function App() {
   const currentStageLabel = finished ? statusLabel[language].completed : stageLabel[language][activeStage];
   const uploadedLabel = files.length ? files.join(", ") : t.noFiles;
   const latestEvent = events[0]?.message;
+  const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0];
+  const sortedProjects = useMemo(() => {
+    const list = [...projects];
+    if (projectSortMode === "created" || projectGroupMode === "time") {
+      list.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    }
+    if (projectSortMode === "updated" || projectGroupMode === "recent") {
+      list.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    }
+    return list;
+  }, [projectGroupMode, projectSortMode, projects]);
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, running]);
+
+  useEffect(() => {
+    const now = new Date().toISOString();
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === activeProjectId
+          ? {
+              ...project,
+              activeStage,
+              context,
+              events,
+              feedbackDrafts,
+              files,
+              hasSubmittedQuestion,
+              messages,
+              pendingIndex,
+              questionDraft,
+              reviewStage,
+              stages,
+              title: deriveProjectTitle(project, messages, questionDraft),
+              updatedAt: now,
+              versions,
+            }
+          : project,
+      ),
+    );
+  }, [
+    activeProjectId,
+    activeStage,
+    context,
+    events,
+    feedbackDrafts,
+    files,
+    hasSubmittedQuestion,
+    messages,
+    pendingIndex,
+    questionDraft,
+    reviewStage,
+    stages,
+    versions,
+  ]);
+
+  const hydrateProject = useCallback((project: ProjectSession) => {
+    setContext(project.context);
+    setStages(project.stages);
+    setEvents(project.events);
+    setVersions(project.versions);
+    setMessages(project.messages);
+    setActiveStage(project.activeStage);
+    setReviewStage(project.reviewStage);
+    setPendingIndex(project.pendingIndex);
+    setQuestionDraft(project.questionDraft);
+    setHasSubmittedQuestion(project.hasSubmittedQuestion);
+    setFiles(project.files);
+    setFeedbackDrafts(project.feedbackDrafts);
+    setRunning(false);
+    setTreeOpen(false);
+    setJsonOpen(null);
+  }, []);
+
+  const selectProject = useCallback(
+    (projectId: string) => {
+      if (running || projectId === activeProjectId) return;
+      const nextProject = projects.find((project) => project.id === projectId);
+      if (!nextProject) return;
+      setActiveProjectId(projectId);
+      hydrateProject(nextProject);
+      setPage("workbench");
+    },
+    [activeProjectId, hydrateProject, projects, running],
+  );
+
+  const createNewProject = useCallback(() => {
+    if (running) return;
+    const nextProject = createProjectSession(projects.length + 1, runMode, language);
+    setProjects((current) => [...current, nextProject]);
+    setActiveProjectId(nextProject.id);
+    hydrateProject(nextProject);
+    setPage("workbench");
+    setProjectMenuOpen(false);
+    setProjectSubmenu(null);
+  }, [hydrateProject, language, projects.length, runMode, running]);
 
   const appendEvent = useCallback(
     (type: string, messageZh: string, messageEn: string, stage?: StageId | "final_review" | "feedback_revision") => {
@@ -557,6 +771,28 @@ function App() {
           </div>
         </div>
 
+        <ProjectPanel
+          activeProjectId={activeProject.id}
+          disabled={running}
+          groupMode={projectGroupMode}
+          language={language}
+          menuOpen={projectMenuOpen}
+          onArchiveAll={() => {
+            setProjectMenuOpen(false);
+            setProjectSubmenu(null);
+          }}
+          onCreateProject={createNewProject}
+          onGroupModeChange={setProjectGroupMode}
+          onMenuOpenChange={setProjectMenuOpen}
+          onSelectProject={selectProject}
+          onSortModeChange={setProjectSortMode}
+          onSubmenuChange={setProjectSubmenu}
+          projects={sortedProjects}
+          sortMode={projectSortMode}
+          submenu={projectSubmenu}
+          t={t}
+        />
+
         <nav className="rail-nav" aria-label="Primary">
           <button className={page === "workbench" ? "active" : ""} type="button" onClick={() => setPage("workbench")}>
             <MessageSquareText size={16} />
@@ -659,6 +895,12 @@ function App() {
                   aria-label={t.questionPlaceholder}
                   disabled={running || context.current_stage === "human_review"}
                   onChange={(event) => setQuestionDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void startDemo();
+                    }
+                  }}
                   placeholder={!hasSubmittedQuestion ? t.questionPlaceholder : ""}
                   value={questionDraft}
                 />
@@ -755,6 +997,146 @@ function MessageIndexRail({ language, messages }: { language: Language; messages
   );
 }
 
+function ProjectPanel({
+  activeProjectId,
+  disabled,
+  groupMode,
+  menuOpen,
+  onArchiveAll,
+  onCreateProject,
+  onGroupModeChange,
+  onMenuOpenChange,
+  onSelectProject,
+  onSortModeChange,
+  onSubmenuChange,
+  projects,
+  sortMode,
+  submenu,
+  t,
+}: {
+  activeProjectId: string;
+  disabled: boolean;
+  groupMode: ProjectGroupMode;
+  language: Language;
+  menuOpen: boolean;
+  onArchiveAll: () => void;
+  onCreateProject: () => void;
+  onGroupModeChange: (value: ProjectGroupMode) => void;
+  onMenuOpenChange: (value: boolean) => void;
+  onSelectProject: (projectId: string) => void;
+  onSortModeChange: (value: ProjectSortMode) => void;
+  onSubmenuChange: (value: ProjectMenuPanel) => void;
+  projects: ProjectSession[];
+  sortMode: ProjectSortMode;
+  submenu: ProjectMenuPanel;
+  t: (typeof copy)[Language];
+}) {
+  return (
+    <section className="project-panel">
+      <div className="project-titlebar">
+        <button className="project-title-button" type="button" onClick={() => onSubmenuChange(submenu === "root" ? null : "root")}>
+          <span>{t.projects}</span>
+          <ChevronDown size={15} />
+        </button>
+        <div className="project-actions">
+          <button
+            aria-label={t.organizeSidebar}
+            className={`icon-quiet ${menuOpen ? "active" : ""}`}
+            type="button"
+            onClick={() => {
+              onMenuOpenChange(!menuOpen);
+              onSubmenuChange(null);
+            }}
+          >
+            <MoreHorizontal size={17} />
+          </button>
+          <button aria-label={t.newProject} className="icon-quiet" disabled={disabled} type="button" onClick={onCreateProject}>
+            <FilePlus2 size={17} />
+          </button>
+        </div>
+
+        {menuOpen ? (
+          <div className="project-menu">
+            <button type="button" onClick={onArchiveAll}>
+              <Archive size={16} />
+              <span>{t.archiveAll}</span>
+            </button>
+            <button className={submenu === "sidebar" ? "hovered" : ""} type="button" onClick={() => onSubmenuChange(submenu === "sidebar" ? null : "sidebar")}>
+              <PanelLeft size={16} />
+              <span>{t.organizeSidebar}</span>
+              <ChevronRight size={16} />
+            </button>
+            <button className={submenu === "sort" ? "hovered" : ""} type="button" onClick={() => onSubmenuChange(submenu === "sort" ? null : "sort")}>
+              <ListFilter size={16} />
+              <span>{t.sortBy}</span>
+              <ChevronRight size={16} />
+            </button>
+            {submenu === "sidebar" ? (
+              <div className="project-submenu">
+                <button type="button" onClick={() => onGroupModeChange("project")}>
+                  <MessageSquareText size={16} />
+                  <span>{t.groupByProject}</span>
+                  {groupMode === "project" ? <Check size={17} /> : null}
+                </button>
+                <button type="button" onClick={() => onGroupModeChange("recent")}>
+                  <Clock3 size={16} />
+                  <span>{t.recentProjects}</span>
+                  {groupMode === "recent" ? <Check size={17} /> : null}
+                </button>
+                <button type="button" onClick={() => onGroupModeChange("time")}>
+                  <Clock3 size={16} />
+                  <span>{t.timeOrder}</span>
+                  {groupMode === "time" ? <Check size={17} /> : null}
+                </button>
+                <button type="button" onClick={() => onGroupModeChange("movedown")}>
+                  <ArrowDown size={16} />
+                  <span>{t.moveDown}</span>
+                  {groupMode === "movedown" ? <Check size={17} /> : null}
+                </button>
+              </div>
+            ) : null}
+            {submenu === "sort" ? (
+              <div className="project-submenu">
+                <button type="button" onClick={() => onSortModeChange("manual")}>
+                  <GripVertical size={16} />
+                  <span>{t.manualSort}</span>
+                  {sortMode === "manual" ? <Check size={17} /> : null}
+                </button>
+                <button type="button" onClick={() => onSortModeChange("created")}>
+                  <PlusCircle size={16} />
+                  <span>{t.createdTime}</span>
+                  {sortMode === "created" ? <Check size={17} /> : null}
+                </button>
+                <button type="button" onClick={() => onSortModeChange("updated")}>
+                  <SlidersHorizontal size={16} />
+                  <span>{t.recentUpdated}</span>
+                  {sortMode === "updated" ? <Check size={17} /> : null}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="project-list">
+        {projects.map((project) => (
+          <button
+            className={`project-item ${project.id === activeProjectId ? "active" : ""}`}
+            disabled={disabled}
+            key={project.id}
+            type="button"
+            onClick={() => onSelectProject(project.id)}
+            title={project.title}
+          >
+            <MessageSquareText size={16} />
+            <span>{project.title}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ControllerSettings({
   approval,
   language,
@@ -788,7 +1170,7 @@ function ControllerSettings({
     {
       value: "ask",
       label: t.ask,
-      description: language === "zh" ? "编辑外部文件和使用互联网时始终询问" : "Always ask before editing external files or using the internet",
+      description: language === "zh" ? "进入下一层模块输出前始终询问" : "Always ask before moving to the next module output",
     },
     {
       value: "assist",
@@ -798,7 +1180,7 @@ function ControllerSettings({
     {
       value: "auto",
       label: t.auto,
-      description: language === "zh" ? "可不受限制地访问互联网和您电脑上的任何文件" : "Allow unrestricted internet and local file access",
+      description: language === "zh" ? "完全由模型自行审批" : "Let the model approve all steps by itself",
     },
   ];
   const memoryOptions: Array<PickerOption<MemoryLevel>> = [
@@ -835,7 +1217,7 @@ function ControllerSettings({
         value={memory}
       />
       <DropdownControl
-        className="access-control"
+        className={`access-control access-${approval}`}
         icon={<LockKeyhole size={15} />}
         id="approval"
         label={approvalOptions.find((option) => option.value === approval)?.label ?? t.approval}
@@ -1170,6 +1552,55 @@ function StatusMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function getStageExpansionNodes(stage: StageRun, language: Language): Array<{ title: string; subtitle: string }> {
+  const payload = (stage.output?.payload ?? {}) as Record<string, unknown>;
+  if (stage.id === "question_understanding") {
+    const card = payload.question_card as Record<string, unknown> | undefined;
+    return [
+      { title: language === "zh" ? "核心问题" : "Core question", subtitle: stringValue(card?.core_question) },
+      { title: language === "zh" ? "关键变量" : "Key variables", subtitle: arrayValue(card?.key_variables).map((item) => objectName(item)).join(", ") },
+      { title: language === "zh" ? "检索关键词" : "Search keywords", subtitle: arrayValue(objectValue(card?.search_keywords, "en")).slice(0, 4).join(", ") },
+    ];
+  }
+  if (stage.id === "knowledge_integration") {
+    return [
+      { title: "literature_cards", subtitle: `${arrayValue(payload.literature_cards).length} ${language === "zh" ? "条文献卡片" : "cards"}` },
+      { title: "evidence_cards", subtitle: `${arrayValue(payload.evidence_cards).length} ${language === "zh" ? "条证据" : "evidence items"}` },
+      { title: "knowledge_gaps", subtitle: arrayValue(payload.knowledge_gaps).map((item) => objectField(item, "description")).join(" / ") },
+    ];
+  }
+  if (stage.id === "hypothesis_generation") {
+    return arrayValue(payload.hypothesis_cards)
+      .slice(0, 3)
+      .map((item) => ({
+        title: objectField(item, "hypothesis_id"),
+        subtitle: objectField(item, "statement"),
+      }));
+  }
+  if (stage.id === "evidence_mapping") {
+    const first = arrayValue(payload.evidence_map)[0];
+    return [
+      { title: language === "zh" ? "支持证据" : "Supporting", subtitle: arrayValue(objectValue(first, "supporting_evidence_ids")).join(", ") || "--" },
+      { title: language === "zh" ? "反对证据" : "Opposing", subtitle: arrayValue(objectValue(first, "opposing_evidence_ids")).join(", ") || "--" },
+      { title: language === "zh" ? "证据强度" : "Evidence strength", subtitle: `${Math.round(numberValue(objectValue(first, "evidence_strength_score")) * 100)}%` },
+    ];
+  }
+  if (stage.id === "research_planning") {
+    const plan = ((payload.research_plan as Record<string, unknown> | undefined)?.plans as Array<Record<string, unknown>> | undefined)?.[0]?.plan as Record<string, unknown> | undefined;
+    return [
+      { title: language === "zh" ? "方法路线" : "Methods", subtitle: arrayValue(objectValue(plan?.technical_details, "required_methods")).join(", ") },
+      { title: language === "zh" ? "失败判据" : "Falsification", subtitle: arrayValue(objectValue(plan?.results, "falsification_criteria")).slice(0, 2).join(" / ") },
+      { title: language === "zh" ? "反馈任务" : "Feedback tasks", subtitle: arrayValue(plan?.feedback_tasks).map((item) => objectField(item, "objective")).slice(0, 2).join(" / ") },
+    ];
+  }
+  const finalReview = payload.final_review as Record<string, unknown> | undefined;
+  return [
+    { title: language === "zh" ? "总体评分" : "Score", subtitle: `${Math.round(numberValue(finalReview?.overall_score) * 100)}%` },
+    { title: language === "zh" ? "优势" : "Strengths", subtitle: arrayValue(finalReview?.strengths).slice(0, 2).join(" / ") },
+    { title: language === "zh" ? "修订要求" : "Revision", subtitle: finalReview?.revision_required ? "required" : language === "zh" ? "无需修订" : "not required" },
+  ];
+}
+
 function StateTreeModal({
   activeStage,
   language,
@@ -1186,26 +1617,101 @@ function StateTreeModal({
   t: (typeof copy)[Language];
 }) {
   const nodes = useMemo<FlowNode[]>(
-    () =>
-      stages.map((stage, index) => ({
-        id: stage.id,
-        type: "flowNode",
-        position: { x: (index % 3) * 300, y: Math.floor(index / 3) * 210 + 70 },
-        data: { stage, active: stage.id === activeStage, lang: language },
-      })),
+    () => {
+      const nextNodes: FlowNode[] = [];
+      stages.forEach((stage, index) => {
+        const baseY = index * 132 + 34;
+        nextNodes.push({
+          id: stage.id,
+          type: "flowNode",
+          position: { x: 70, y: baseY },
+          data: {
+            active: stage.id === activeStage,
+            kind: "stage",
+            lang: language,
+            stage: stage.id,
+            status: stage.status,
+            subtitle: stagePurpose[language][stage.id],
+            title: stageLabel[language][stage.id],
+          },
+        });
+
+        const artifacts = stageMeta[stage.id].allowedWrites;
+        artifacts.forEach((field, fieldIndex) => {
+          const offset = (fieldIndex - (artifacts.length - 1) / 2) * 48;
+          nextNodes.push({
+            id: `${stage.id}:${field}`,
+            type: "flowNode",
+            position: { x: 352, y: baseY + offset },
+            data: {
+              active: false,
+              kind: "artifact",
+              lang: language,
+              stage: stage.id,
+              status: stage.status,
+              subtitle: stage.output ? (language === "zh" ? "已生成并等待总控合并" : "Generated and ready for merge") : language === "zh" ? "等待该模块输出" : "Waiting for module output",
+              title: field,
+            },
+          });
+        });
+
+        if (stage.output) {
+          getStageExpansionNodes(stage, language).forEach((node, nodeIndex) => {
+            nextNodes.push({
+              id: `${stage.id}:detail:${nodeIndex}`,
+              type: "flowNode",
+              position: { x: 626, y: baseY + (nodeIndex - 1) * 56 },
+              data: {
+                active: false,
+                kind: "feedback",
+                lang: language,
+                stage: stage.id,
+                status: stage.status,
+                subtitle: node.subtitle,
+                title: node.title,
+              },
+            });
+          });
+        }
+      });
+      return nextNodes;
+    },
     [activeStage, language, stages],
   );
 
   const edges = useMemo<Edge[]>(
-    () =>
-      stageOrder.slice(0, -1).map((stage, index) => ({
+    () => {
+      const sequenceEdges: Edge[] = stageOrder.slice(0, -1).map((stage, index) => ({
         id: `${stage}-${stageOrder[index + 1]}`,
         source: stage,
         target: stageOrder[index + 1],
         animated: stages[index].status === "running" || stages[index].status === "validating",
-        className: stages[index].status === "passed" ? "flow-edge-passed" : "flow-edge",
-      })),
-    [stages],
+        className: stages[index].status === "passed" ? "flow-edge-passed vertical-flow-edge" : "flow-edge vertical-flow-edge",
+        type: "smoothstep",
+      }));
+      const branchEdges = stages.flatMap((stage) => {
+        const artifactEdges = stageMeta[stage.id].allowedWrites.map((field) => ({
+          id: `${stage.id}->${field}`,
+          source: stage.id,
+          target: `${stage.id}:${field}`,
+          animated: stage.status === "running" || stage.status === "validating",
+          className: stage.status === "passed" ? "flow-edge-passed branch-flow-edge" : "flow-edge branch-flow-edge",
+          type: "smoothstep",
+        }));
+        const expansionEdges = stage.output
+          ? getStageExpansionNodes(stage, language).map((_, index) => ({
+              id: `${stage.id}:expansion:${index}`,
+              source: `${stage.id}:${stageMeta[stage.id].allowedWrites[0]}`,
+              target: `${stage.id}:detail:${index}`,
+              className: "flow-edge branch-flow-edge faint-flow-edge",
+              type: "smoothstep",
+            }))
+          : [];
+        return [...artifactEdges, ...expansionEdges];
+      });
+      return [...sequenceEdges, ...branchEdges];
+    },
+    [language, stages],
   );
 
   return (
@@ -1225,12 +1731,14 @@ function StateTreeModal({
           <ReactFlow
             edges={edges}
             fitView
-            maxZoom={1.1}
-            minZoom={0.42}
+            maxZoom={1.2}
+            minZoom={0.5}
             nodes={nodes}
             nodeTypes={flowNodeTypes}
             nodesDraggable={false}
-            onNodeClick={(_, node) => setActiveStage(node.id as StageId)}
+            onNodeClick={(_, node) => {
+              if (typeof node.data.stage === "string") setActiveStage(node.data.stage as StageId);
+            }}
             proOptions={{ hideAttribution: true }}
           >
             <Background color="#d8dee7" gap={22} size={1} />
@@ -1243,13 +1751,13 @@ function StateTreeModal({
 }
 
 function FlowNodeCard({ data }: NodeProps<FlowNode>) {
-  const { active, lang, stage } = data;
+  const { active, kind, lang, status, subtitle, title } = data;
   return (
-    <button className={`flow-node ${stage.status} ${active ? "active" : ""}`} type="button">
+    <button className={`flow-node ${kind} ${status ?? "queued"} ${active ? "active" : ""}`} type="button">
       <Handle className="node-handle" position={Position.Left} type="target" />
-      <span>{statusLabel[lang][stage.status]}</span>
-      <strong>{stageLabel[lang][stage.id]}</strong>
-      <small>{stageMeta[stage.id].allowedWrites.join(", ")}</small>
+      <span>{status ? statusLabel[lang][status] : kind}</span>
+      <strong>{title}</strong>
+      <small>{subtitle}</small>
       <Handle className="node-handle" position={Position.Right} type="source" />
     </button>
   );

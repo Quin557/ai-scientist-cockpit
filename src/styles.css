@@ -52,7 +52,7 @@ textarea:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 48px 276px minmax(0, 1fr);
+  grid-template-columns: 48px 312px minmax(0, 1fr);
   height: 100vh;
   color: var(--text);
   background:
@@ -159,7 +159,7 @@ textarea:disabled {
 .control-rail {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   min-width: 0;
   padding: 18px;
   overflow-y: auto;
@@ -204,6 +204,172 @@ textarea:disabled {
   margin-top: 2px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.project-panel {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 0 4px;
+}
+
+.project-titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+}
+
+.project-title-button,
+.icon-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  gap: 5px;
+  color: #8b929d;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  font-size: 14px;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.project-title-button {
+  padding: 0 4px;
+  justify-content: flex-start;
+}
+
+.project-title-button span {
+  font-size: 15px;
+}
+
+.project-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.icon-quiet {
+  width: 32px;
+}
+
+.project-title-button:hover,
+.icon-quiet:hover,
+.icon-quiet.active {
+  color: var(--text);
+  background: #eef0f3;
+}
+
+.project-list {
+  display: grid;
+  gap: 2px;
+  max-height: 188px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.project-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 6px;
+  color: #3d4652;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.project-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.project-item:hover,
+.project-item.active {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.project-item.active {
+  box-shadow: 0 8px 20px rgba(17, 24, 39, 0.06);
+}
+
+.project-menu,
+.project-submenu {
+  position: absolute;
+  z-index: 35;
+  display: grid;
+  width: 244px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(23, 32, 44, 0.12);
+  border-radius: var(--radius);
+  box-shadow: 0 22px 70px rgba(17, 24, 39, 0.18);
+  backdrop-filter: blur(22px);
+}
+
+.project-menu {
+  top: 36px;
+  right: 18px;
+}
+
+.project-submenu {
+  top: 46px;
+  left: calc(100% + 8px);
+}
+
+.project-menu button,
+.project-submenu button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 8px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+.project-menu button:hover,
+.project-menu button.hovered,
+.project-submenu button:hover {
+  background: #f1f2f4;
+}
+
+.project-menu button:first-child {
+  border-bottom: 1px solid var(--line);
+  border-radius: 7px 7px 0 0;
+}
+
+.project-menu button span,
+.project-submenu button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rail-nav {
@@ -988,7 +1154,17 @@ textarea:disabled {
   transform: translateY(-1px);
 }
 
-.access-control .dropdown-trigger {
+.access-control.access-ask .dropdown-trigger {
+  color: #566171;
+  background: #eef1f5;
+}
+
+.access-control.access-assist .dropdown-trigger {
+  color: #1f66d1;
+  background: #eaf2ff;
+}
+
+.access-control.access-auto .dropdown-trigger {
   color: var(--orange);
   background: #fff3ed;
 }
@@ -1154,7 +1330,7 @@ textarea:disabled {
 
 .tree-modal,
 .json-modal {
-  width: min(1100px, 100%);
+  width: min(1440px, 100%);
   overflow: hidden;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.72);
@@ -1194,25 +1370,52 @@ textarea:disabled {
 }
 
 .tree-canvas {
-  height: min(620px, 70vh);
+  height: min(820px, 82vh);
+  background:
+    linear-gradient(90deg, rgba(35, 104, 216, 0.045) 0 1px, transparent 1px),
+    linear-gradient(180deg, rgba(35, 104, 216, 0.035) 0 1px, transparent 1px),
+    #fbfcfd;
+  background-size: 80px 80px;
 }
 
 .flow-node {
   display: grid;
-  gap: 5px;
-  width: 210px;
-  min-height: 92px;
-  padding: 12px;
+  gap: 6px;
+  width: 232px;
+  min-height: 88px;
+  padding: 12px 13px;
   text-align: left;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 0 12px 30px rgba(17, 24, 39, 0.1);
+  box-shadow: 0 16px 44px rgba(17, 24, 39, 0.09);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.flow-node:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 20px 52px rgba(17, 24, 39, 0.12);
 }
 
 .flow-node.active {
   border-color: rgba(35, 104, 216, 0.48);
   box-shadow: 0 0 0 3px rgba(35, 104, 216, 0.12), 0 18px 40px rgba(17, 24, 39, 0.15);
+}
+
+.flow-node.artifact {
+  width: 214px;
+  min-height: 64px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.flow-node.feedback {
+  width: 236px;
+  min-height: 68px;
+  background: #f8fbff;
+  border-color: rgba(35, 104, 216, 0.16);
 }
 
 .flow-node span {
@@ -1224,11 +1427,22 @@ textarea:disabled {
 .flow-node strong {
   color: var(--text);
   font-size: 15px;
+  line-height: 1.2;
+}
+
+.flow-node.artifact strong,
+.flow-node.feedback strong {
+  font-size: 13px;
 }
 
 .flow-node small {
   color: var(--muted);
+  display: -webkit-box;
+  overflow: hidden;
   font-size: 11px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .node-handle {
@@ -1245,6 +1459,14 @@ textarea:disabled {
 
 .flow-edge path {
   stroke: #94a3b8;
+}
+
+.branch-flow-edge path {
+  stroke-dasharray: 5 5;
+}
+
+.faint-flow-edge path {
+  opacity: 0.55;
 }
 
 .json-block {
@@ -1271,7 +1493,7 @@ textarea:disabled {
 
 @media (max-width: 1120px) {
   .app-shell {
-    grid-template-columns: 42px 236px minmax(0, 1fr);
+    grid-template-columns: 42px 264px minmax(0, 1fr);
   }
 
   .composer-footer {

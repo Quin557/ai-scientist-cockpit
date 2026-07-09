@@ -96,3 +96,5 @@ Recommended landing path:
 2. Connect the real orchestrator, Agent adapters, Review Gate, Artifact Service, and SSE event stream.
 3. Deploy the web version through Vercel, Netlify, or GitHub Pages.
 4. Only after the browser experience is stable, wrap the same frontend with Tauri or Electron if a desktop app is still necessary.
+
+Detailed backend notes are in [docs/backend-integration-guide.md](docs/backend-integration-guide.md). Keep that file updated whenever the frontend adds or changes a backend-facing interaction.
