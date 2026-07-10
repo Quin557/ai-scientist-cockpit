@@ -349,7 +349,7 @@ function createProjectSession(index: number, mode: RunMode, language: Language, 
   const now = new Date().toISOString();
   return {
     id: makeProjectId(index),
-    title: title ?? (language === "zh" ? `新科研项目 ${index}` : `Research project ${index}`),
+    title: title ?? (language === "zh" ? `项目${index}` : `Project ${index}`),
     createdAt: now,
     updatedAt: now,
     context: preparedContext,
@@ -385,7 +385,7 @@ function App() {
   const [projectSubmenu, setProjectSubmenu] = useState<ProjectMenuPanel>(null);
   const [projectGroupMode, setProjectGroupMode] = useState<ProjectGroupMode>("project");
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>("manual");
-  const [projects, setProjects] = useState<ProjectSession[]>(() => [createProjectSession(1, "hybrid", "zh", "2026TZB")]);
+  const [projects, setProjects] = useState<ProjectSession[]>(() => [createProjectSession(1, "hybrid", "zh")]);
   const [activeProjectId, setActiveProjectId] = useState(() => projects[0].id);
   const [context, setContext] = useState<TaskContext>(() => projects[0].context);
   const [stages, setStages] = useState<StageRun[]>(() => projects[0].stages);
