@@ -41,6 +41,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   createAgentResponse,
   createInitialContext,
@@ -767,7 +768,7 @@ function App() {
     <div className="app-shell">
       <MessageIndexRail language={language} messages={messages} />
 
-      <aside className="control-rail">
+      <aside className={`control-rail ${projectMenuOpen ? "menu-open" : ""}`}>
         <div className="brand-row">
           <span className="brand-mark">
             <Bot size={18} />
@@ -1004,6 +1005,16 @@ function MessageIndexRail({ language, messages }: { language: Language; messages
   );
 }
 
+const projectMenuWidth = 244;
+const projectMenuGap = 8;
+const viewportMargin = 12;
+
+function clampMenuPosition(value: number, width: number) {
+  if (typeof window === "undefined") return value;
+  const max = Math.max(viewportMargin, window.innerWidth - width - viewportMargin);
+  return Math.min(Math.max(value, viewportMargin), max);
+}
+
 function ProjectPanel({
   activeProjectId,
   disabled,
@@ -1038,48 +1049,59 @@ function ProjectPanel({
   submenu: ProjectMenuPanel;
   t: (typeof copy)[Language];
 }) {
-  return (
-    <section className="project-panel">
-      <div className="project-titlebar">
-        <button className="project-title-button" type="button" onClick={() => onSubmenuChange(submenu === "root" ? null : "root")}>
-          <span>{t.projects}</span>
-          <ChevronDown size={15} />
-        </button>
-        <div className="project-actions">
-          <button
-            aria-label={t.organizeSidebar}
-            className={`icon-quiet ${menuOpen ? "active" : ""}`}
-            type="button"
-            onClick={() => {
-              onMenuOpenChange(!menuOpen);
-              onSubmenuChange(null);
-            }}
-          >
-            <MoreHorizontal size={17} />
-          </button>
-          <button aria-label={t.newProject} className="icon-quiet" disabled={disabled} type="button" onClick={onCreateProject}>
-            <FilePlus2 size={17} />
-          </button>
-        </div>
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0 });
 
-        {menuOpen ? (
-          <div className="project-menu">
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const updateMenuPosition = () => {
+      const triggerRect = menuTriggerRef.current?.getBoundingClientRect();
+      if (triggerRect) {
+        setMenuPosition({
+          left: clampMenuPosition(triggerRect.right - projectMenuWidth + 4, projectMenuWidth),
+          top: triggerRect.bottom + projectMenuGap,
+        });
+      }
+    };
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [menuOpen]);
+
+  const menuLayer =
+    menuOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div className="project-menu" style={{ left: menuPosition.left, top: menuPosition.top }}>
             <button type="button" onClick={onArchiveAll}>
               <Archive size={16} />
               <span>{t.archiveAll}</span>
             </button>
-            <button className={submenu === "sidebar" ? "hovered" : ""} type="button" onClick={() => onSubmenuChange(submenu === "sidebar" ? null : "sidebar")}>
+            <button
+              className={submenu === "sidebar" ? "hovered" : ""}
+              type="button"
+              onClick={() => onSubmenuChange(submenu === "sidebar" ? null : "sidebar")}
+            >
               <PanelLeft size={16} />
               <span>{t.organizeSidebar}</span>
               <ChevronRight size={16} />
             </button>
-            <button className={submenu === "sort" ? "hovered" : ""} type="button" onClick={() => onSubmenuChange(submenu === "sort" ? null : "sort")}>
+            <button
+              className={submenu === "sort" ? "hovered" : ""}
+              type="button"
+              onClick={() => onSubmenuChange(submenu === "sort" ? null : "sort")}
+            >
               <ListFilter size={16} />
               <span>{t.sortBy}</span>
               <ChevronRight size={16} />
             </button>
             {submenu === "sidebar" ? (
-              <div className="project-submenu">
+              <div className="project-submenu sidebar-submenu">
                 <button type="button" onClick={() => onGroupModeChange("project")}>
                   <MessageSquareText size={16} />
                   <span>{t.groupByProject}</span>
@@ -1103,7 +1125,7 @@ function ProjectPanel({
               </div>
             ) : null}
             {submenu === "sort" ? (
-              <div className="project-submenu">
+              <div className="project-submenu sort-submenu">
                 <button type="button" onClick={() => onSortModeChange("manual")}>
                   <GripVertical size={16} />
                   <span>{t.manualSort}</span>
@@ -1121,8 +1143,36 @@ function ProjectPanel({
                 </button>
               </div>
             ) : null}
-          </div>
-        ) : null}
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <section className="project-panel">
+      <div className="project-titlebar">
+        <button className="project-title-button" type="button" onClick={() => onSubmenuChange(submenu === "root" ? null : "root")}>
+          <span>{t.projects}</span>
+          <ChevronDown size={15} />
+        </button>
+        <div className="project-actions">
+          <button
+            aria-label={t.organizeSidebar}
+            className={`icon-quiet ${menuOpen ? "active" : ""}`}
+            ref={menuTriggerRef}
+            type="button"
+            onClick={() => {
+              onMenuOpenChange(!menuOpen);
+              onSubmenuChange(null);
+            }}
+          >
+            <MoreHorizontal size={17} />
+          </button>
+          <button aria-label={t.newProject} className="icon-quiet" disabled={disabled} type="button" onClick={onCreateProject}>
+            <FilePlus2 size={17} />
+          </button>
+        </div>
+        {menuLayer}
       </div>
 
       <div className="project-list">

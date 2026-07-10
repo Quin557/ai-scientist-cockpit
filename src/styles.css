@@ -157,6 +157,8 @@ textarea:disabled {
 }
 
 .control-rail {
+  position: relative;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -166,6 +168,10 @@ textarea:disabled {
   background: rgba(250, 251, 252, 0.9);
   border-right: 1px solid var(--line);
   backdrop-filter: blur(24px);
+}
+
+.control-rail.menu-open {
+  z-index: 45;
 }
 
 .brand-row {
@@ -314,8 +320,8 @@ textarea:disabled {
 
 .project-menu,
 .project-submenu {
-  position: absolute;
-  z-index: 35;
+  position: fixed;
+  z-index: 70;
   display: grid;
   width: 244px;
   padding: 8px;
@@ -326,14 +332,16 @@ textarea:disabled {
   backdrop-filter: blur(22px);
 }
 
-.project-menu {
-  top: 36px;
-  right: 18px;
-}
-
 .project-submenu {
-  top: 46px;
-  left: calc(100% + 8px);
+  position: static;
+  z-index: auto;
+  width: 100%;
+  margin: 4px 0 6px;
+  padding: 5px;
+  background: #f5f6f8;
+  border-color: rgba(23, 32, 44, 0.08);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .project-menu button,
