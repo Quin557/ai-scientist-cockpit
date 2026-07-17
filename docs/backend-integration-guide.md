@@ -1,390 +1,146 @@
-# EurekaLoop 后端对接开发指南
+# 后端 API 对接指南
 
-本文档面向后端与 Agent 开发同学，说明当前前端 demo 中各个按钮、状态、对话记录和状态树未来应如何接入真实后端。后续前端交互有变化时，需要同步更新本文档。
+前端默认设置 `VITE_ENABLE_REAL_AGENTS=true`，任务创建后使用服务器返回的 `task_id`。后端是 `task_context`、审核、版本和 Artifact 的权威状态源。
 
-## 1. 当前前端能力边界
-
-当前版本仍是 mock-first 前端，但已经按真实系统预留了这些交互：
-
-- 多项目侧边栏：每个项目对应一条独立科研任务会话。
-- 对话式主流程：用户输入、总控消息、每个 Agent 输出、修改建议、最终输出都进入同一个 thread。
-- Review Gate：需要审批时，审批按钮出现在对应 Agent 输出消息尾部。
-- 修改重跑：用户可在对应消息尾部写反馈，重新运行当前模块。
-- 控制策略：推理强度、访问权限、记忆能力。
-- 文件上传入口：输入框左下角 `+`。
-- 状态树：侧边小状态树 + 完整可视化状态树。
-
-这些交互目前部分由前端 mock 状态驱动，后续需要用真实 API、SSE 和 Artifact Service 替换。
-
-## 2. 推荐后端模块
-
-建议后端拆成这些服务：
-
-|模块|职责|
-|---|---|
-|Task API|创建项目/任务，读取项目列表，切换任务|
-|Workflow Orchestrator|按状态机调度 Agent|
-|TaskContext Manager|维护 `task_context`，裁剪输入，合并输出|
-|Agent Adapter Layer|把各 Agent 封装成统一调用协议|
-|Review Gate|校验格式、字段、自评分、下游可用性和审批策略|
-|Artifact Service|保存 input/output/review/context/version/event/file|
-|Event Stream|用 SSE/WebSocket 推送阶段状态和对话消息|
-|File Service|处理上传文件、元数据、引用关系|
-
-## 3. 前端状态与后端数据映射
-
-### 3.1 Project Session
-
-前端中的一个项目建议映射到后端的一个 `task` 或 `workspace_task`：
-
-```json
-{
-  "project_id": "project_001",
-  "task_id": "task_001",
-  "title": "阿尔茨海默病的关键致病机制是什么？",
-  "created_at": "2026-07-09T10:00:00Z",
-  "updated_at": "2026-07-09T10:10:00Z",
-  "status": "human_review",
-  "current_stage": "hypothesis_generation",
-  "iteration": 1
-}
-```
-
-### 3.2 Thread Message
-
-所有用户输入和 Agent 输出都应落成消息：
-
-```json
-{
-  "message_id": "msg_001",
-  "task_id": "task_001",
-  "kind": "user | controller | agent",
-  "stage": "question_understanding",
-  "status": "running | validating | human_review | passed | failed | retrying",
-  "body": "用户问题或总控说明",
-  "response_ref": "artifacts/tasks/task_001/outputs/question_understanding.output.json",
-  "review_ref": "artifacts/tasks/task_001/reviews/question_understanding.review.json",
-  "needs_approval": true,
-  "created_at": "2026-07-09T10:00:00Z"
-}
-```
-
-前端不要求后端每次都返回完整大 JSON。推荐返回摘要 + artifact 引用，点击 JSON 时再拉取详情。
-
-## 4. 推荐 API
-
-### 4.1 项目列表
+## 项目恢复与归档
 
 ```text
-GET /api/projects
-POST /api/projects
-GET /api/projects/{project_id}
-PATCH /api/projects/{project_id}
-POST /api/projects/archive-all
+GET  /api/tasks                         # 默认只返回未归档任务
+GET  /api/tasks?include_archived=true   # 管理端需要时包含归档任务
+GET  /api/tasks/{id}                    # manifest + task_context
+POST /api/tasks/{id}/archive            # {"archived": true|false}
 ```
 
-`POST /api/projects` 用于左侧“文件加号”创建新项目。
+前端启动后应逐任务读取 events、attachments 和 stage detail。某个历史任务结构异常时，不得阻止其他任务恢复。
 
-### 4.2 任务启动
+## 调用顺序
 
 ```text
 POST /api/tasks
-POST /api/tasks/{task_id}/start
+  -> POST /api/tasks/{id}/stages/question_understanding/run
+  -> ...
+  -> POST /api/tasks/{id}/stages/final_review/run
 ```
 
-请求体示例：
+也可以调用 `POST /api/tasks/{id}/start` 让后端连续执行，遇到人工审核、重试或失败时停止。
+
+阶段运行返回：
 
 ```json
 {
-  "project_id": "project_001",
-  "question": "阿尔茨海默病的关键致病机制是什么？",
-  "settings": {
-    "reasoning": "low | medium | high | ultra",
-    "approval_mode": "ask | assist | auto",
-    "memory": "low | medium | high"
-  },
-  "file_ids": ["file_001"]
-}
-```
-
-### 4.3 阶段详情
-
-```text
-GET /api/tasks/{task_id}/stages
-GET /api/tasks/{task_id}/stages/{stage}
-GET /api/tasks/{task_id}/context
-GET /api/tasks/{task_id}/messages
-```
-
-阶段详情应返回：
-
-```json
-{
-  "stage": "hypothesis_generation",
+  "task_id": "task_x",
+  "stage": "evidence_mapping",
   "status": "human_review",
-  "input": {},
-  "output": {
-    "metadata": {},
-    "payload": {},
-    "self_review": {}
-  },
+  "response": {},
   "review": {},
-  "allowed_writes": ["hypothesis_cards"]
+  "task_context": {}
 }
 ```
 
-### 4.4 审批与重跑
+## 人工审核
 
-```text
-POST /api/tasks/{task_id}/reviews
-POST /api/tasks/{task_id}/stages/{stage}/rerun
-POST /api/tasks/{task_id}/feedback
-```
+```http
+POST /api/tasks/{id}/reviews
+Content-Type: application/json
 
-审批请求：
-
-```json
 {
-  "stage": "hypothesis_generation",
+  "stage": "evidence_mapping",
   "decision": "accept",
-  "operator": "human",
-  "comment": "人工审批通过"
+  "comment": "证据边界清楚，继续。"
 }
 ```
 
-重跑请求：
+`decision` 可为 `accept`、`retry` 或 `rollback`。只有等待人工审核的任务可以提交决定。
+
+## 反馈迭代
+
+```http
+POST /api/tasks/{id}/feedback
+Content-Type: application/json
+
+{
+  "target_stage": "hypothesis_generation",
+  "comment": "缩小研究人群并增加反向因果检验。",
+  "rerun_downstream": true,
+  "execute": true,
+  "mode": "hybrid",
+  "reasoning_level": "high",
+  "memory_level": "medium"
+}
+```
+
+反馈会先增加 iteration、写入 `feedback_events` 并创建版本，然后从目标阶段重跑。前端需要自己控制逐阶段动画时，可发送 `execute=false`，再调用阶段接口。
+
+iteration 表示反馈驱动的科研迭代批次：新任务从 1 开始，每次成功记录反馈增加 1；普通阶段执行、人工批准继续和刷新页面不增加。最大值由 `MAX_WORKFLOW_ITERATIONS` 控制。
+
+记录反馈后必须同步执行状态失效：
+
+1. 目标阶段的 task_context 写入字段恢复为空值，目标之后所有阶段的写入字段同样清空。
+2. `reviews` 删除目标阶段及下游的旧审核；历史 `versions` 和 `feedback_events` 保留用于追溯。
+3. manifest 中目标阶段设为 `retrying`，下游设为 `queued`，目标之前已通过的上游状态保持不变。
+4. `GET /api/tasks/{id}/stages/{stage}` 对 `queued`、`retrying`、`rollback`、`running` 不返回旧输出；有效输出的 input 应按输出 metadata 中的 iteration 配对读取。
+
+这条规则用于保证当前状态树和 Agent 输入不会把上一轮已失效结果误认为当前结果。历史比较必须读取 versions，不得复用当前状态接口拼接旧节点。
+
+主输入框必须遵守以下语义：
+
+1. 本地草稿没有后端 `task_id`：调用一次 `POST /api/tasks`。
+2. 已有后端 `task_id`：调用反馈接口，明确 `target_stage`，不得创建新任务。
+3. 等待人工审核：在对应模块消息尾部调用 reviews 接口，不使用主输入框绕过审核。
+4. 新建任务必须通过“创建新项目”操作生成独立草稿。
+
+## 附件
+
+```text
+GET  /api/tasks/{id}/attachments
+POST /api/tasks/{id}/attachments   multipart/form-data，字段名 files
+```
+
+- 允许扩展名：`.txt`、`.md`、`.csv`、`.json`。
+- 默认单文件上限 2,000,000 字节，可用 `ATTACHMENT_MAX_BYTES` 调整。
+- 注入上下文的总字符数默认 30,000，可用 `ATTACHMENT_CONTEXT_CHARS` 调整。
+- 文件必须是 UTF-8 文本；服务端重新校验文件名、扩展名、编码和任务目录边界。
+- 前端先校验以改善体验，但不能替代服务端校验。
+- Artifact Service 把附件文本写入 `task_context.user_input.question_description`；`ProjectLLMClient` 再把该背景注入所有真实模型请求的用户消息，而不只是保存在任务文件中。
+- 自动测试使用唯一标记断言附件文本实际出现在 OpenAI 兼容请求的 `messages[1].content`，用于防止“上传成功但模型看不到”的回归。
+
+## 模型耗时与超时
+
+- `LLM_TIMEOUT_SECONDS`：单次模型 HTTP 请求超时，默认 120 秒。
+- `LLM_MAX_RETRIES`：OpenAI 兼容 SDK 的自动重试次数，默认 0。每增加一次重试，单个逻辑调用的最坏等待时间会再增加一个超时周期。
+- `KNOWLEDGE_LLM_MAX_ATTEMPTS`：知识整合内部模型尝试次数，默认 1。该模块本身包含多个模型步骤，不应与 SDK 重试无上限叠加。
+- `QWEN_ENABLE_THINKING`：默认 `false`；只有设置为 `true` 且推理等级为 high/ultra 时开启 thinking。
+- high 的生成上限为 6144 tokens；ultra 使用 `LLM_MAX_TOKENS` 的完整预算。需要缩短 Demo 等待时间时，优先使用 low/medium，减少检索查询和候选数量，再按实际网络延迟调整 timeout。
+
+某阶段长时间等待通常不等于接口断开。应先检查事件日志和阶段错误：thinking、多模型步骤、知识整合内部尝试和 SDK 重试会累积总耗时。前端会显示正在运行的累计时间；超过 120 秒转为警示色，完成后保留实际用时。
+
+## 查询与导出
+
+- `GET /api/tasks/{id}/context`
+- `GET /api/tasks/{id}/attachments`
+- `GET /api/tasks/{id}/stages`
+- `GET /api/tasks/{id}/stages/{stage}`
+- `GET /api/tasks/{id}/versions`
+- `GET /api/tasks/{id}/versions/diff?left=v001-001&right=v002-001`
+- `GET /api/tasks/{id}/artifacts`
+- `GET /api/tasks/{id}/events/stream?follow=true`
+- `POST /api/tasks/{id}/export`
+
+错误统一使用 FastAPI `detail` 字段。前端不得把 API 失败替换成成功 mock；可以显示失败响应并允许用户修正配置后重试。
+
+## 健康状态
+
+`GET /api/health` 同时返回当前 `model`、API capabilities、每个 Agent source 的 `available`、`ready`、`credential_required`、`credential_configured`、`mode`，以及以下运行策略：
 
 ```json
 {
-  "stage": "hypothesis_generation",
-  "feedback": "请减少过于宽泛的假设，优先保留可用公开数据验证的机制假设。",
-  "rerun_mode": "same_stage",
-  "base_version_id": "v003"
+  "llm": {
+    "timeout_seconds": 120,
+    "max_retries": 0,
+    "thinking_enabled": false,
+    "knowledge_max_attempts": 1
+  }
 }
 ```
 
-## 5. 控制策略字段
-
-### 5.1 推理强度
-
-前端枚举：
-
-```text
-low | medium | high | ultra
-```
-
-后端可映射到：
-
-- 模型选择
-- 最大上下文长度
-- 是否启用多轮自检
-- 是否启用更严格的 Review Gate
-
-### 5.2 访问权限
-
-前端枚举：
-
-```text
-ask     请求批准：进入下一层模块输出前始终询问
-assist  替我审批：仅对检测到的风险操作请求批准
-auto    完全自动：完全由模型自行审批
-```
-
-建议后端映射：
-
-|前端值|后端模式|行为|
-|---|---|---|
-|ask|manual|每个阶段结束都进入 `human_review`|
-|assist|hybrid|关键阶段或风险阶段进入 `human_review`|
-|auto|auto|总控自动审批，保留日志|
-
-### 5.3 记忆能力
-
-前端枚举：
-
-```text
-low | medium | high
-```
-
-建议后端映射：
-
-- `low`：只保留当前阶段必要上下文。
-- `medium`：保留阶段摘要、关键反馈、版本索引。
-- `high`：保留完整对话、artifact 引用、版本 diff 和反馈历史。
-
-## 6. 文件上传
-
-输入框左下角 `+` 后续应调用：
-
-```text
-POST /api/projects/{project_id}/files
-GET /api/projects/{project_id}/files
-DELETE /api/projects/{project_id}/files/{file_id}
-```
-
-上传后返回：
-
-```json
-{
-  "file_id": "file_001",
-  "name": "paper.pdf",
-  "mime_type": "application/pdf",
-  "size": 123456,
-  "artifact_path": "artifacts/tasks/task_001/files/paper.pdf",
-  "status": "uploaded | parsed | failed"
-}
-```
-
-## 7. 状态树数据
-
-完整状态树不应该只返回 6 个阶段节点。当前前端会本地生成三列结构：
-
-- 第 1 列：六个主阶段，从上到下固定为 `question_understanding -> knowledge_integration -> hypothesis_generation -> evidence_mapping -> research_planning -> final_review`。
-- 第 2 列：每个阶段允许写入的 artifact，例如 `question_card`、`literature_cards`、`evidence_map`。
-- 第 3 列：从 Agent 真实 `payload` 中抽取的可读摘要，例如核心问题、文献标题、假设语句、证据强度、方案方法、总控评分。
-
-后续建议后端直接提供 `/api/tasks/{task_id}/state-tree`，让前端只负责渲染。节点字段建议如下：
-
-```json
-{
-  "nodes": [
-    {
-      "id": "question_understanding",
-      "kind": "stage",
-      "stage": "question_understanding",
-      "title": "问题理解",
-      "status": "passed",
-      "lane": 1,
-      "column": "stage",
-      "summary": "把原始问题转成可检索、可验证、可迭代的 question_card。"
-    },
-    {
-      "id": "question_understanding:question_card",
-      "kind": "artifact",
-      "stage": "question_understanding",
-      "title": "question_card",
-      "status": "ready",
-      "lane": 1,
-      "column": "artifact",
-      "summary": "核心问题：神经炎症是否通过促进 Tau 病理扩散，加速阿尔茨海默病认知功能下降？",
-      "source_payload_path": "payload.question_card"
-    },
-    {
-      "id": "question_understanding:detail:core_question",
-      "kind": "detail",
-      "stage": "question_understanding",
-      "parent_id": "question_understanding:question_card",
-      "title": "核心问题",
-      "status": "ready",
-      "lane": 1,
-      "column": "detail",
-      "summary": "神经炎症是否通过促进 Tau 病理扩散，加速阿尔茨海默病认知功能下降？",
-      "source_payload_path": "payload.question_card.core_question",
-      "preview_fields": ["core_question", "key_variables", "sub_questions"]
-    }
-  ],
-  "edges": [
-    {
-      "source": "question_understanding",
-      "target": "knowledge_integration",
-      "kind": "workflow"
-    },
-    {
-      "source": "question_understanding",
-      "target": "question_understanding:question_card",
-      "kind": "writes"
-    },
-    {
-      "source": "question_understanding:question_card",
-      "target": "question_understanding:detail:core_question",
-      "kind": "explains"
-    }
-  ]
-}
-```
-
-摘要节点必须来自真实 Agent 返回内容，而不是固定模板。推荐映射：
-
-|阶段|artifact|detail 摘要建议|
-|---|---|---|
-|问题理解|`question_card`|`core_question`、`key_variables`、`sub_questions`|
-|知识整合|`literature_cards` / `evidence_cards` / `knowledge_gaps`|代表文献标题、证据 claim、知识空白 description|
-|假设生成|`hypothesis_cards`|`hypothesis_id`、`statement`、`validation_idea`、`initial_scores.testability`|
-|证据梳理|`evidence_map` / `reviews`|支持/反对证据摘要、`evidence_strength_score`、评审建议|
-|研究计划|`research_plan`|`problem_statement`、方法、数据集、指标、失败判据、反馈任务|
-|总控最终输出|`final_review` / `versions`|总体评分、优势、剩余风险、是否需要修订、最终快照状态|
-
-为了避免前端分支重叠，后端如能计算布局，可返回 `lane`、`column`、`parent_id`；如果不返回，前端会按阶段自动分配泳道，并将主流程纵向、artifact/detail 横向展开。
-
-## 8. 事件流
-
-建议用 SSE：
-
-```text
-GET /api/tasks/{task_id}/events/stream
-```
-
-事件类型：
-
-```text
-task_created
-task_started
-stage_started
-agent_output_received
-review_gate_passed
-human_review_requested
-human_review_approved
-stage_retry_requested
-context_snapshot_created
-task_completed
-task_failed
-```
-
-SSE payload 示例：
-
-```json
-{
-  "event_id": "evt_001",
-  "task_id": "task_001",
-  "type": "stage_started",
-  "stage": "knowledge_integration",
-  "message": "知识整合开始执行。",
-  "created_at": "2026-07-09T10:03:00Z"
-}
-```
-
-## 9. Artifact 目录建议
-
-```text
-artifacts/
-  tasks/
-    task_001/
-      manifest.json
-      task_context.latest.json
-      inputs/
-      outputs/
-      reviews/
-      versions/
-      events/
-      files/
-      reports/
-      exports/
-```
-
-关键规则：
-
-- Agent 原始输出先写入 `outputs/`。
-- Review Gate 通过后才合并 `payload` 到 `task_context.latest.json`。
-- 每次合并生成 `versions/context_vXXX.json`。
-- 前端 JSON 查看按钮优先读取 artifact 引用。
-
-## 10. 推荐实现顺序
-
-1. 先实现 `GET/POST /api/projects`，让左侧项目列表持久化。
-2. 实现 `POST /api/tasks` 和 `POST /api/tasks/{id}/start`，先接 mock Agent。
-3. 实现 `GET /api/tasks/{id}/messages`，让对话记录由后端恢复。
-4. 实现 `POST /reviews` 和 `POST /stages/{stage}/rerun`，打通人工审批和重跑。
-5. 实现 `GET /events/stream`，替换前端本地事件。
-6. 实现 Artifact Service 和 JSON 详情接口。
-7. 逐个替换真实 Agent Adapter。
-8. 最后接入文件上传、版本 diff、导出报告和提交包。
+前端必须用 `model` 动态显示真实模型名，不能写死 GPT 或 Qwen 版本；只能把 `ready=true` 计为可执行 Agent。源码目录存在但缺少模型密钥时应显示降级状态。

@@ -17,17 +17,30 @@ export type StageStatus =
   | "human_review"
   | "passed"
   | "failed"
+  | "revision_required"
   | "retrying";
 
 export type ViewId = "workbench" | "research" | "artifacts" | "api" | "submission";
 
 export interface UserInput {
   original_question: string;
+  question_description?: string;
+  base_question_description?: string;
+  attachments?: Array<{
+    attachment_id: string;
+    name: string;
+    path: string;
+    media_type: string;
+    size: number;
+    created_at: string;
+  }>;
   user_constraints: {
     language: string;
     domain_preference: string;
     max_hypotheses: number;
     output_detail_level: "brief" | "standard" | "detailed";
+    reasoning_level: "low" | "medium" | "high" | "ultra";
+    memory_level: "low" | "medium" | "high";
   };
 }
 
@@ -279,6 +292,7 @@ export interface FeedbackEvent {
   };
   controller_action: string;
   revision_suggestion: string;
+  created_at?: string;
 }
 
 export interface TaskContext {
@@ -307,6 +321,7 @@ export interface AgentResponse<TPayload = Record<string, unknown>> {
     stage: StageId;
     iteration: number;
     status: "success" | "partial_success" | "failed";
+    duration_ms?: number | null;
   };
   payload: TPayload;
   self_review: {
@@ -317,6 +332,15 @@ export interface AgentResponse<TPayload = Record<string, unknown>> {
     issues: string[];
     suggestions: string[];
   };
+}
+
+export interface StageExecutionResult {
+  task_id: string;
+  stage: StageId;
+  status: "passed" | "completed" | "human_review" | "retry" | "failed";
+  response: AgentResponse;
+  review: ReviewRecord | null;
+  task_context?: TaskContext;
 }
 
 export interface ReviewRecord {
@@ -333,6 +357,7 @@ export interface ReviewRecord {
     iteration_value: number;
   };
   overall_score: number;
+  issues?: string[];
   operator: "system" | "human";
   created_at: string;
 }
@@ -371,8 +396,9 @@ export interface ArtifactItem {
 export interface ApiSpec {
   method: "GET" | "POST";
   path: string;
+  capability: string;
   owner: string;
-  status: "mocked" | "planned";
+  status: "ready" | "mocked" | "planned";
   writes: string;
   description: string;
 }

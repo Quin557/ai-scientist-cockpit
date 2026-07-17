@@ -1,100 +1,112 @@
-# EurekaLoop · 灵光闭环
+# EurekaLoop - AI Scientist Cockpit
 
-EurekaLoop 是一个面向“AI agent for scientist”的前端 demo。当前版本是 mock-first：暂时不依赖真实后端，也能演示从科学问题到多 Agent 输出、人工审批、反馈重跑、总控最终输出的完整科研闭环。
+EurekaLoop 面向挑战杯赛题 XH-202619 的“科学假设生成与研究计划设计”方向。系统把问题理解、知识整合、假设生成、证据梳理、研究计划和总控审核组织成可追踪、可审核、可反馈迭代的科研闭环。
 
-## Current Scope
+## 已实现能力
 
-本仓库根据项目目录中的三份文档设计：
+- 5 个真实 Agent 源码均在 `agents/`，核心算法保持独立。
+- 统一 Agent 协议：`metadata + payload + self_review`，自动补充 trace ID 和耗时。
+- Schema-first 总控：输入裁剪、写入白名单、Review Gate 和证据 ID 追溯检查。
+- 任务级编排：自动、人工和混合三种模式。
+- Artifact 持久化：阶段输入输出、审核、事件、上下文和版本快照均落盘。
+- 反馈迭代：反馈进入下一轮上下文，可从指定阶段重跑并比较版本差异。
+- MCP Artifact Service：基于官方 MCP Python SDK，限制在任务目录内访问。
+- React 工作台：真实调用后端 Agent、人工审核、反馈重跑、状态树和系统面板。
+- 后端项目恢复与归档：刷新页面后恢复未归档项目，归档操作真实更新任务 manifest。
+- 任务附件：支持 UTF-8 的 `.txt`、`.md`、`.csv`、`.json`，上传后进入任务上下文。
+- 运行策略：推理强度、审批模式和记忆等级同时影响新任务与后续反馈迭代。
+- 可调用 API、SSE 事件流和任务 ZIP 导出。
 
-- `赛题文档.md`：要求展示可交互前端、测试入口、代表性案例，以及“科学问题 → 假设/计划 → 反馈迭代”的科研闭环。
-- `数据规范_v0.1.md`：定义 `task_context`、5 个 Agent 的输入输出、统一响应格式 `metadata/payload/self_review`。
-- `总控层与前端设计方案v0.1.md`：要求总控负责状态管理、调度、校验、Review Gate、Artifact/版本/事件追踪，前端负责可观察和可干预。
-
-## Demo Features
-
-- Codex-like conversation thread: user question, every Agent output, revision feedback, and final controller output are all shown as chat records.
-- Inline Review Gate: approval and rerun controls appear at the end of the related module message, not in a separate popup.
-- Message index rail: the thin left rail indexes each input/output and can jump back to a message.
-- Controller controls: reasoning level, access permission, and memory level use Codex-style dropdown controls.
-- File attachment affordance: the composer keeps a `+` button with the tooltip “添加文件等内容”.
-- Side state tree: compact branch tree stays in the side rail; clicking a node opens the full React Flow state tree with six stage lanes, artifact branches, and concrete payload-derived summaries.
-- Chinese / English switch and a concise in-app guide page.
-- Browser-first direction. Desktop wrapping is deferred until the web experience and backend contract are stable.
-
-## Mock Workflow
+## 目录
 
 ```text
-用户输入
--> 问题理解
--> 知识整合
--> 候选假设生成
--> 证据梳理
--> 研究计划输出
--> 总控最终审核
+agents/                 五个 Agent 和机器可读注册表
+artifacts/tasks/        运行期任务产物，默认不提交 Git
+backend/app/            协议、适配器、总控、审核、Artifact 服务和 API
+backend/mcp_server.py   MCP stdio 服务
+backend/tests/          Agent 契约与总控测试
+schemas/                task_context 和统一响应 JSON Schema
+src/                    React 工作台
+docs/                   架构、差距分析、MCP、部署和接入文档
 ```
 
-Each module returns the planned unified response shape:
+## 快速启动
 
-```text
-metadata + payload + self_review
-```
+要求：Python 3.10+、Node.js 20+。
 
-The controller only writes the payload into `task_context` after validation or approval.
-
-## Tech Stack
-
-- React
-- Vite
-- TypeScript
-- React Flow
-- lucide-react
-
-## Local Run
-
-```bash
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+Copy-Item backend\.env.example backend\.env
 npm install
-npm run dev
 ```
 
-Open:
+在 `backend/.env` 中配置模型凭据。所有 Agent 默认使用 OpenAI 兼容接口和 `qwen3.7-max`，密钥文件不会被 Git 跟踪。
 
-```text
-http://localhost:5173
+一键启动：
+
+```powershell
+.\start.ps1
 ```
 
-## Build
+访问：
 
-```bash
+- 前端：http://127.0.0.1:5173
+- API：http://127.0.0.1:8000
+- OpenAPI：http://127.0.0.1:8000/docs
+
+## MCP
+
+MCP 服务由客户端按 stdio 方式启动：
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.mcp_server
+```
+
+工具包括任务列表、上下文读取、Artifact 列举/读取、评审笔记、版本比较和导出。服务拒绝绝对路径与 `..` 路径穿越。配置示例见 [docs/mcp.md](docs/mcp.md)。
+
+## 测试与构建
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s backend\tests -v
+npm run typecheck
 npm run build
-npm run preview
 ```
 
-Preview:
+容器启动：
 
-```text
-http://localhost:4173
+```powershell
+docker compose up --build
 ```
 
-## Backend Integration Path
-
-The current mock layer can later be replaced by these routes:
+## 核心 API
 
 ```text
 POST /api/tasks
 POST /api/tasks/{task_id}/start
-GET  /api/tasks/{task_id}/context
+POST /api/tasks/{task_id}/stages/{stage}/run
 GET  /api/tasks/{task_id}/stages/{stage}
+GET  /api/tasks
+POST /api/tasks/{task_id}/archive
+GET  /api/tasks/{task_id}/attachments
+POST /api/tasks/{task_id}/attachments
 POST /api/tasks/{task_id}/reviews
 POST /api/tasks/{task_id}/feedback
+GET  /api/tasks/{task_id}/versions/diff
+GET  /api/tasks/{task_id}/artifacts
 GET  /api/tasks/{task_id}/events/stream
 POST /api/tasks/{task_id}/export
 ```
 
-Recommended landing path:
+## 文档
 
-1. Keep this React/Vite web app as the first deployable surface.
-2. Connect the real orchestrator, Agent adapters, Review Gate, Artifact Service, and SSE event stream.
-3. Deploy the web version through Vercel, Netlify, or GitHub Pages.
-4. Only after the browser experience is stable, wrap the same frontend with Tauri or Electron if a desktop app is still necessary.
+- [现状与差距](docs/gap-analysis.md)
+- [系统架构](docs/architecture.md)
+- [Agent 接入规范](docs/agent-integration.md)
+- [后端 API 对接指南](docs/backend-integration-guide.md)
+- [MCP 服务](docs/mcp.md)
+- [部署](docs/deployment.md)
+- [分支批次优化记录](docs/branch-optimizations/feat-product-hardening-batch-1/README.md)
+- [工作台、状态树与主题优化记录](docs/branch-optimizations/feat-workbench-state-tree-theme-batch-2/README.md)
 
-Detailed backend notes are in [docs/backend-integration-guide.md](docs/backend-integration-guide.md). Keep that file updated whenever the frontend adds or changes a backend-facing interaction.
+`backend/.env`、根目录 `.env`、运行 Artifact、日志、虚拟环境和构建目录均不得提交。
